@@ -101,7 +101,7 @@ function assertNoViewError() {
   }
 }
 
-test('数字键 1–6 能切换页面；但正在输入时不该被当成快捷键（回归）', async () => {
+test('数字键 1–6 随时能切换页面；主动点进输入框时数字归用户（回归）', async () => {
   const navIds = logic.NAV_ITEMS.map((n) => n.id);
   eq(navIds.length, 6, '当前应是 6 个导航入口');
 
@@ -113,9 +113,9 @@ test('数字键 1–6 能切换页面；但正在输入时不该被当成快捷�
     eq(router.currentRoute(), navIds[i], '按 ' + (i + 1) + ' 应切到 ' + navIds[i]);
   }
 
-  // ---- 二：回归——焦点在输入框里时，数字键属于用户，不能抢去切页面 ----
-  // 复现用户报的问题：手动按 1 回到首页后，输入框自动获得焦点，
-  // 此时再按数字键，应该落进输入框，而不是把页面切走。
+  // ---- 二：回归——进首页后不该自动把焦点塞进输入框 ----
+  // 之前的问题：进首页时输入框自动获得焦点，导致数字键变成"往输入框里打字"，
+  // 想切页面必须先点一下空白处。
   dom.document.body.focus();
   dom.fireKey('1');
   await waitRender();
@@ -123,28 +123,35 @@ test('数字键 1–6 能切换页面；但正在输入时不该被当成快捷�
 
   const quickInput = view().querySelector('[data-field="quick-title"]');
   ok(quickInput, '首页应有「快速补一条」输入框');
-  eq(dom.document.activeElement, quickInput, '进首页后输入框应自动获得焦点');
+  notEq(dom.document.activeElement, quickInput, '进首页不该自动把焦点放进输入框');
 
-  // 模拟"用户在输入框里按下 3"：事件目标是输入框
-  quickInput.fire('keydown', { key: '3' });
+  // 紧接着按数字键——不需要先点空白处，就该切页面
+  dom.fireKey('3');
+  await waitRender();
+  eq(router.currentRoute(), 'dev', '进首页后直接按 3 就该切到开发工作，不用先点空白处');
+
+  // ---- 三：主动点进输入框后，数字属于用户，不能被抢去切页面 ----
+  dom.fireKey('1');
+  await waitRender();
+  const input2 = view().querySelector('[data-field="quick-title"]');
+  input2.click();      // 模拟用户点进输入框
+  input2.focus();
+  eq(dom.document.activeElement, input2, '点进来后焦点应在这个输入框');
+
+  input2.fire('keydown', { key: '3' }); // 事件目标是输入框
   await waitRender();
   eq(router.currentRoute(), 'home', '正在输入时按数字键不该切换页面');
-  eq(quickInput.value, '', '守卫不该往输入框里写东西（值仍由用户输入决定）');
 
-  // 焦点还在输入框上，但这次事件目标是 body（浏览器异常情况）——同样不该切页
-  quickInput._focused = true;
-  dom.document.activeElement = quickInput;
+  // 焦点在输入框里、但事件目标是 body（浏览器异常情况）——同样不该切页
   dom.fireKey('5');
   await waitRender();
   eq(router.currentRoute(), 'home', '只要焦点在输入框里，即使事件目标不是它，也不该切换');
 
-  // ---- 三：焦点移开后，数字键恢复切换 ----
-  // 相当于用户点了页面空白处，焦点离开输入框
+  // ---- 四：焦点离开后，数字键恢复切换 ----
   dom.document.body.focus();
-  eq(dom.document.activeElement, dom.document.body, '焦点应已离开输入框');
   dom.fireKey('4');
   await waitRender();
-  eq(router.currentRoute(), 'study', '焦点移开后按 4 应切到学习');
+  eq(router.currentRoute(), 'study', '焦点离开后按 4 应切到学习');
 
   // 收尾：把界面带回首页，后面的用例默认从首页开始
   await go('home');

@@ -86,7 +86,12 @@ export default {
   mounted(root, ctx) {
     const noteInput = root.querySelector('[data-field="note-input"]');
     const quickInput = root.querySelector('[data-field="quick-title"]');
-    if (quickInput) quickInput.focus();
+
+    // 刻意**不**自动把焦点放进输入框：
+    // 焦点在输入框里时，数字键属于输入内容，1–6 就没法用来切换页面了，
+    // 每次都得先点一下空白处才能切，很别扭。
+    // 想输入时点一下输入框即可；提交后仍会保持焦点，方便连续添加。
+
     if (noteInput) {
       noteInput.addEventListener('keydown', (ev) => {
         if (ev.key !== 'Enter') return;
