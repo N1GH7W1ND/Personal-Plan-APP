@@ -107,6 +107,11 @@ export default {
         dayPanel: ui.calendarDayTasks(state, 'fitness', ui.getCalState('fitness').selected, today),
       }),
     }) +
+    ui.card({
+      title: '健身统计',
+      sub: '切时间范围看趋势；点柱子或扇形看具体内容',
+      body: ui.chartCard({ moduleId: 'fitness', state, today, logic }),
+    }) +
     (todo.length ? ui.card({
       title: '今天要做的健身任务',
       sub: todo.length + ' 条未完成',
@@ -123,6 +128,8 @@ export default {
 
     // 日历操作（切月 / 选日期）
     if (ui.handleCalendarClick(act, ev, 'fitness', today, helpers.rerender)) return;
+    // 图表操作（切时间范围 / 点柱子扇区看明细）
+    if (ui.handleChartClick(act, 'fitness', helpers.rerender)) return;
 
     if (type === 'fit-set') {
       const day = act.getAttribute('data-day');

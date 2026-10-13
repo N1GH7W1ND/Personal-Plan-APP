@@ -103,6 +103,11 @@ export default {
       }),
     }) +
     ui.card({
+      title: '开发统计',
+      sub: '切时间范围看趋势；点柱子或扇形看具体内容',
+      body: ui.chartCard({ moduleId: 'dev', state, today, logic }),
+    }) +
+    ui.card({
       title: '灵感收集箱',
       sub: logic.unhandledIdeas(state).length + ' 条待整理',
       tight: true,
@@ -162,6 +167,8 @@ export default {
 
     // 日历操作（切月 / 选日期）
     if (ui.handleCalendarClick(act, ev, 'dev', today, helpers.rerender)) return;
+    // 图表操作（切时间范围 / 点柱子扇区看明细）
+    if (ui.handleChartClick(act, 'dev', helpers.rerender)) return;
 
     const openEditor = (item) => {
       ui.openModal({

@@ -241,8 +241,11 @@ test('把任务日期改成明天后，首页不再显示它（PRD B4）', async
   eq(logic.findTask(store.getState(), task.id).date, tomorrow, '任务日期应改为明天');
 
   await go('home');
-  const homeHtml = view().innerHTML;
-  notOk(homeHtml.includes(task.title), '首页今日计划不应再显示明天的任务');
+  // 首页现在还有"各模块汇总"图表，本周范围内的任务也会出现在图表明细里，
+  // 所以这里要精确判断"今日计划"里有没有这一行，而不是看整页文本
+  const row = view().querySelector('[id="task-' + task.id + '"]');
+  const inTodayCard = row ? !!row.closest('.card') && /今日计划/.test(row.closest('.card').textContent) : false;
+  eq(inTodayCard, false, '首页今日计划不应再显示明天的任务');
 
   // 任务本身没被删掉，只是换了日期
   ok(store.getState().tasks.some((t) => t.id === task.id), '任务本身没有被删掉');

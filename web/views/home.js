@@ -69,10 +69,18 @@ export default {
       })
       : '';
 
+    /* ---- 全模块汇总图表 ---- */
+    const chartCard = ui.card({
+      title: '各模块汇总',
+      sub: '切时间范围看整体趋势；点柱子或扇形看具体内容，点扇形里的模块名可跳到该模块',
+      body: ui.chartCard({ moduleId: 'all', state, today, logic }),
+    });
+
     return '<div class="home-grid">' +
       '<div>' + todayCard + quickCard + '</div>' +
       '<div>' + noteCard + summaryCard + '</div>' +
-      '</div>';
+      '</div>' +
+      chartCard;
   },
 
   mounted(root, ctx) {
@@ -120,6 +128,14 @@ export default {
     const type = act.getAttribute('data-act');
     const id = act.getAttribute('data-id');
 
+    // 图表：点图例里的模块名直接跳到该模块（这个要抢在图表本身的"选中"之前）
+    if (type === 'chart-slice' && act.getAttribute('data-kind') === 'module') {
+      const key = act.getAttribute('data-key');
+      if (logic.MODULE_IDS.includes(key)) { ctx.go(key); return; }
+    }
+    // 图表：切时间范围、点柱子/扇形看明细
+    if (ui.handleChartClick(act, 'all', helpers.rerender)) return;
+
     if (type === 'goto-today') { ctx.go('today'); return; }
     if (type === 'summary-go') {
       ctx.go(act.getAttribute('data-route'), act.getAttribute('data-anchor'));
@@ -139,6 +155,7 @@ export default {
       overdueOpen = !overdueOpen;
     }
 
+    // 任务相关操作（勾选、改期、菜单等）走公共逻辑
     actions.handleTaskClick(ev, store, ctx, helpers, {
       onJump: (moduleId, taskId) => ctx.jump(moduleId, taskId),
     });

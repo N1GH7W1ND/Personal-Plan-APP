@@ -83,6 +83,11 @@ export default {
         dayPanel: ui.calendarDayTasks(state, 'diet', ui.getCalState('diet').selected, today),
       }),
     }) +
+    ui.card({
+      title: '饮食统计',
+      sub: '切时间范围看趋势；点柱子或扇形看具体内容',
+      body: ui.chartCard({ moduleId: 'diet', state, today, logic }),
+    }) +
     '<div class="cols-2">' +
     '<div>' +
     ui.card({
@@ -143,6 +148,8 @@ export default {
 
     // 日历操作（切月 / 选日期）
     if (ui.handleCalendarClick(act, ev, 'diet', today, helpers.rerender)) return;
+    // 图表操作（切时间范围 / 点柱子扇区看明细）
+    if (ui.handleChartClick(act, 'diet', helpers.rerender)) return;
 
     if (type === 'meal-eaten') {
       store.dispatch((s) => logic.toggleMealEaten(s, today, mealKey), { label: '勾选已吃' });

@@ -71,6 +71,7 @@ async function go(route) {
 async function reset() {
   await store.clearAll();
   ui.clearCalendarState(); // 日历的月份与选中日期也要复位，避免用例之间互相影响
+  ui.clearChartState();    // 图表的时间范围与选中柱/扇区同理
   dom.navigate('home');
   await waitRender();
   assertNoViewError();
@@ -695,6 +696,205 @@ test('日历：各模块月份互不干扰，且能一键回到本月', async ()
   findByAct(view(), 'cal-today')[0].click();
   await waitRender();
   eq(ui.currentCalMonth('dev', today).month, now.getMonth() + 1, '应一键回到本月');
+});
+
+test('每个模块都有统计图表，且首页是汇总', async () => {
+  const pages = [
+    { route: 'dev', title: '开发统计', pie: '完成占比' },
+    { route: 'study', title: '学习统计', pie: '完成占比' },
+    { route: 'fitness', title: '健身统计', pie: '完成占比' },
+    { route: 'diet', title: '饮食统计', pie: '完成占比' },
+    { route: 'home', title: '各模块汇总', pie: '任务分布（按模块）' },
+  ];
+
+  for (const p of pages) {
+    await go(p.route);
+    const html = view().innerHTML;
+    ok(html.includes(p.title), p.route + ' 页应有「' + p.title + '」');
+    ok(html.includes('bar-chart'), p.route + ' 页应有柱形图');
+    ok(html.includes('<svg'), p.route + ' 页应有扇形图（SVG）');
+    ok(html.includes(p.pie), p.route + ' 页的扇形图标题应是「' + p.pie + '」');
+    eq(findByAct(view(), 'chart-range').length, 4, p.route + ' 页应有 4 个时间范围可选');
+    eq(findByAct(view(), 'chart-bucket').length > 0, true, p.route + ' 页的柱子应可点击');
+  }
+});
+
+test('图表：空数据时结构仍然完整（不塌成空白）', async () => {
+  await reset();
+  for (const route of ['dev', 'home']) {
+    await go(route);
+    const html = view().innerHTML;
+    ok(html.includes('<svg'), route + ' 页空数据时也应渲染扇形图骨架');
+    ok(html.includes('bar-chart'), route + ' 页空数据时也应渲染柱形图骨架');
+    ok(html.includes('这个时间段还没有数据'), route + ' 页应有空状态文案');
+    eq(findByAct(view(), 'chart-range').length, 4, route + ' 页时间范围仍可切换');
+  }
+});
+
+test('图表：切时间范围会改变柱子数量（本周 7 根 → 本月整月）', async () => {
+  await reset();
+  await go('dev');
+
+  const rangeBtn = (key) => findByAct(view(), 'chart-range').find((el) => el.getAttribute('data-range') === key);
+
+  // 默认是本周 → 7 根柱子
+  eq(findByAct(view(), 'chart-bucket').length, 7, '默认本周应有 7 根柱子');
+  eq(rangeBtn('week').classList.contains('active'), true, '"本周"应处于选中态');
+
+  // 切到本月
+  rangeBtn('month').click();
+  await waitRender();
+  const daysInMonth = new Date(date.parseDateStr(date.todayStr()).getFullYear(),
+    date.parseDateStr(date.todayStr()).getMonth() + 1, 0).getDate();
+  eq(findByAct(view(), 'chart-bucket').length, daysInMonth, '本月应显示当月每一天');
+  eq(rangeBtn('month').classList.contains('active'), true, '"本月"应变成选中态');
+  eq(rangeBtn('week').classList.contains('active'), false, '"本周"应取消选中');
+
+  // 切到今年（没有数据时柱子为 0，不应报错）
+  rangeBtn('year').click();
+  await waitRender();
+  eq(findByAct(view(), 'chart-bucket').length, 0, '今年没有数据时没有柱子');
+  ok(view().innerHTML.includes('这个时间段还没有数据'), '应给出空状态提示');
+
+  // 切到全部再回本周
+  rangeBtn('all').click();
+  await waitRender();
+  rangeBtn('week').click();
+  await waitRender();
+  eq(findByAct(view(), 'chart-bucket').length, 7, '切回本周应恢复 7 根柱子');
+});
+
+test('图表：点柱子展开那一段的具体内容', async () => {
+  await reset();
+  const today = date.todayStr();
+  const week = date.startOfWeek(today);
+
+  store.dispatch((s) => {
+    logic.addTask(s, { title: '周一未完成', module: 'dev', date: week });
+    logic.addTask(s, { title: '周一已完成', module: 'dev', date: week, done: true });
+    logic.addTask(s, { title: '今天的事', module: 'dev', date: today });
+  });
+  await go('dev');
+  await waitRender();
+
+  const panelText = () => {
+    const el = view().querySelector('.chart-detail');
+    return el ? el.textContent : '';
+  };
+
+  // 未选中时明细是整个范围
+  ok(panelText().includes('共 3 条'), '未选中时应显示整个范围的条数');
+
+  // 点周一的柱子
+  findByAct(view(), 'chart-bucket').find((el) => el.getAttribute('data-key') === week).click();
+  await waitRender();
+  ok(panelText().includes('这一段的 2 条'), '点柱子后应只显示那一段的条数');
+  ok(panelText().includes('周一未完成') && panelText().includes('周一已完成'), '应列出那天的两条');
+  notOk(panelText().includes('今天的事'), '不应出现别的日期的任务');
+
+  // 点「看全部」清掉选择
+  findByAct(view(), 'chart-clear')[0].click();
+  await waitRender();
+  ok(panelText().includes('共 3 条'), '点看全部后应恢复整个范围');
+});
+
+test('图表：点扇区/图例按完成情况筛明细（模块页扇形图是完成/未完成）', async () => {
+  await reset();
+  const today = date.todayStr();
+
+  // 同时造"已完成"和"未完成"，扇形图才会有两块
+  store.dispatch((s) => {
+    logic.addTask(s, { title: '做完了的', module: 'dev', date: today, done: true });
+    logic.addTask(s, { title: '还没做的', module: 'dev', date: today });
+  });
+  await go('dev');
+  await waitRender();
+
+  const panelText = () => (view().querySelector('.chart-detail') || { textContent: '' }).textContent;
+  const sliceOf = (key) => findByAct(view(), 'chart-slice')
+    .find((el) => el.tagName === 'PATH' && el.getAttribute('data-key') === key);
+
+  ok(sliceOf('done'), '应有"已完成"扇区');
+  ok(sliceOf('pending'), '应有"未完成"扇区');
+  ok(panelText().includes('做完了的') && panelText().includes('还没做的'), '未筛前两条都应显示');
+
+  // 点"已完成"扇区
+  sliceOf('done').click();
+  await waitRender();
+  ok(panelText().includes('做完了的'), '点已完成扇区后应留下已完成那条');
+  notOk(panelText().includes('还没做的'), '未完成的那条应被筛掉');
+
+  // 点"未完成"扇区
+  sliceOf('pending').click();
+  await waitRender();
+  ok(panelText().includes('还没做的'), '点未完成扇区后应留下未完成那条');
+  notOk(panelText().includes('做完了的'), '已完成的那条应被筛掉');
+});
+
+test('图表：首页汇总点图例里的模块名会跳到该模块', async () => {
+  await reset();
+  // 造两个模块的数据，扇形图才会分成多块
+  store.dispatch((s) => {
+    logic.addTask(s, { title: '学习任务', module: 'study', date: date.todayStr() });
+    logic.addTask(s, { title: '开发任务', module: 'dev', date: date.todayStr() });
+  });
+  await go('home');
+  await waitRender();
+
+  const legendOf = (key) => findByAct(view(), 'chart-slice')
+    .find((el) => el.getAttribute('data-kind') === 'module' && el.getAttribute('data-key') === key);
+
+  ok(legendOf('study'), '汇总图例里应有学习模块');
+  ok(legendOf('dev'), '汇总图例里应有开发模块');
+  legendOf('study').click();
+  await waitRender();
+
+  eq(router.currentRoute(), 'study', '点模块名应跳到该模块');
+  ok(view().innerHTML.includes('学习清单'), '应渲染学习页内容');
+});
+
+test('图表：首页汇总点扇区只筛明细，不跳转', async () => {
+  await reset();
+  store.dispatch((s) => {
+    logic.addTask(s, { title: '学习任务', module: 'study', date: date.todayStr() });
+    logic.addTask(s, { title: '开发任务', module: 'dev', date: date.todayStr() });
+  });
+  await go('home');
+  await waitRender();
+
+  const path = findByAct(view(), 'chart-slice')
+    .find((el) => el.tagName === 'PATH' && el.getAttribute('data-key') === 'study');
+  ok(path, '应有学习模块的扇区');
+  path.click();
+  await waitRender();
+
+  eq(router.currentRoute(), 'home', '点扇区应留在首页（只有点图例里的模块名才跳转）');
+  const panel = view().querySelector('.chart-detail').textContent;
+  ok(panel.includes('学习任务'), '应筛出该模块的任务');
+  notOk(panel.includes('开发任务'), '别的模块的任务应被筛掉');
+});
+
+test('图表：首页汇总按模块分布，且时间范围切换生效', async () => {
+  await reset();
+  const today = date.todayStr();
+  store.dispatch((s) => {
+    logic.addTask(s, { title: '开发1', module: 'dev', date: today });
+    logic.addTask(s, { title: '学习1', module: 'study', date: today });
+    logic.addTask(s, { title: '健身1', module: 'fitness', date: today });
+  });
+  await go('home');
+  await waitRender();
+
+  const sliceKeys = findByAct(view(), 'chart-slice').map((el) => el.getAttribute('data-key'));
+  for (const id of ['dev', 'study', 'fitness']) {
+    ok(sliceKeys.includes(id), '汇总图应包含模块 ' + id);
+  }
+  ok(view().innerHTML.includes('共 <b>3</b> 条'), '应统计到 3 条');
+
+  // 切到"全部"仍然统计到（今天在全部范围内）
+  findByAct(view(), 'chart-range').find((el) => el.getAttribute('data-range') === 'all').click();
+  await waitRender();
+  ok(view().innerHTML.includes('共 <b>3</b> 条'), '切到全部后条数不变');
 });
 
 /* ============================================================

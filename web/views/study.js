@@ -79,6 +79,11 @@ export default {
         dayPanel: ui.calendarDayTasks(state, 'study', ui.getCalState('study').selected, today),
       }),
     }) +
+    ui.card({
+      title: '学习统计',
+      sub: '切时间范围看趋势；点柱子或扇形看具体内容',
+      body: ui.chartCard({ moduleId: 'study', state, today, logic }),
+    }) +
     (todayTasks.length ? ui.card({
       title: '今天要学的',
       sub: todayTasks.length + ' 条未完成',
@@ -117,6 +122,8 @@ export default {
 
     // 日历操作（切月 / 选日期）
     if (ui.handleCalendarClick(act, ev, 'study', today, helpers.rerender)) return;
+    // 图表操作（切时间范围 / 点柱子扇区看明细）
+    if (ui.handleChartClick(act, 'study', helpers.rerender)) return;
 
     const openEditor = (item) => {
       const isNew = !item;

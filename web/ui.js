@@ -628,6 +628,210 @@ export function dateChips(selected, today) {
     '</div>';
 }
 
+/* ---------------- 图表（柱形图 / 扇形图） ---------------- */
+
+/**
+ * 图表的界面状态（不落盘）：每个模块各自记一份时间范围与选中的柱子/扇区。
+ */
+const chartState = {};
+
+export function getChartState(moduleId) {
+  if (!chartState[moduleId]) chartState[moduleId] = { range: 'week', bucket: null };
+  return chartState[moduleId];
+}
+
+export function clearChartState() {
+  for (const k of Object.keys(chartState)) delete chartState[k];
+}
+
+/** 柱形图：每天/每月的任务数与完成数 */
+function barChart(buckets, selectedKey, maxTotal) {
+  if (!buckets.length) {
+    return '<div class="chart-empty">这个时间段还没有数据</div>';
+  }
+  const max = Math.max(1, maxTotal || 1);
+
+  const bars = buckets.map((b) => {
+    const h = Math.round((b.total / max) * 100);
+    const dh = b.total ? Math.round((b.done / max) * 100) : 0;
+    const cls = ['bar'];
+    if (b.key === selectedKey) cls.push('selected');
+    if (b.total === 0) cls.push('empty');
+    return '<div class="' + cls.join(' ') + '" data-act="chart-bucket" data-key="' + escapeHtml(b.key) + '"' +
+      ' title="' + escapeHtml(b.sub + '：' + b.total + ' 条，完成 ' + b.done + ' 条') + '">' +
+      '<div class="bar-track">' +
+      '<div class="bar-total" style="height:' + h + '%"></div>' +
+      '<div class="bar-done" style="height:' + dh + '%"></div>' +
+      '</div>' +
+      '<div class="bar-label">' + escapeHtml(b.label) + '</div>' +
+      '</div>';
+  }).join('');
+
+  return '<div class="bar-chart">' + bars + '</div>' +
+    '<div class="chart-legend">' +
+    '<span class="lg"><i class="sw done"></i>已完成</span>' +
+    '<span class="lg"><i class="sw total"></i>总数</span>' +
+    '</div>';
+}
+
+/** 用极坐标算扇形路径 */
+function slicePath(cx, cy, r, startAngle, endAngle) {
+  const rad = (a) => (a - 90) * Math.PI / 180;
+  const x1 = cx + r * Math.cos(rad(startAngle));
+  const y1 = cy + r * Math.sin(rad(startAngle));
+  const x2 = cx + r * Math.cos(rad(endAngle));
+  const y2 = cy + r * Math.sin(rad(endAngle));
+  const large = endAngle - startAngle > 180 ? 1 : 0;
+  return 'M ' + cx + ' ' + cy + ' L ' + x1.toFixed(2) + ' ' + y1.toFixed(2) +
+    ' A ' + r + ' ' + r + ' 0 ' + large + ' 1 ' + x2.toFixed(2) + ' ' + y2.toFixed(2) + ' Z';
+}
+
+/** 扇形图（饼图）：占比分布。没有数据时画一个灰色底环，保持结构稳定 */
+function pieChart(slices, selectedKey, moduleId) {
+  const total = slices.reduce((n, s) => n + s.value, 0);
+
+  const cx = 70;
+  const cy = 70;
+  const r = 62;
+
+  if (!total) {
+    return '<div class="pie-wrap">' +
+      '<svg class="pie" viewBox="0 0 140 140" width="140" height="140" role="img" aria-label="占比图">' +
+      '<circle class="pie-empty" cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="#eef1f6"></circle>' +
+      '<circle cx="' + cx + '" cy="' + cy + '" r="30" fill="#fff"></circle>' +
+      '<text x="' + cx + '" y="' + (cy + 5) + '" text-anchor="middle" class="pie-total">0</text>' +
+      '</svg>' +
+      '<div class="pie-legend muted">这个时间段还没有数据</div>' +
+      '</div>';
+  }
+
+  let angle = 0;
+  const paths = slices.map((s) => {
+    const sweep = (s.value / total) * 360;
+    const start = angle;
+    const end = angle + sweep;
+    angle = end;
+    const cls = s.key === selectedKey ? 'pie-slice selected' : 'pie-slice';
+    // 只有一个扇区时画整圆，避免起止点重合导致路径消失
+    const d = slices.length === 1
+      ? 'M ' + cx + ' ' + (cy - r) + ' A ' + r + ' ' + r + ' 0 1 1 ' + (cx - 0.01) + ' ' + (cy - r) + ' Z'
+      : slicePath(cx, cy, r, start, end);
+    return '<path class="' + cls + '" d="' + d + '" fill="' + s.color + '"' +
+      ' data-act="chart-slice" data-key="' + escapeHtml(s.key) + '">' +
+      '<title>' + escapeHtml(s.label + '：' + s.value + ' 条（' +
+        Math.round((s.value / total) * 100) + '%）') + '</title></path>';
+  }).join('');
+
+  const legend = slices.map((s) =>
+    '<span class="lg" data-act="chart-slice" data-kind="' + escapeHtml(moduleId === 'all' ? 'module' : 'status') +
+    '" data-key="' + escapeHtml(s.key) + '" style="cursor:pointer">' +
+    '<i class="sw" style="background:' + s.color + '"></i>' + escapeHtml(s.label) +
+    ' <b>' + s.value + '</b>（' + Math.round((s.value / total) * 100) + '%）</span>').join('');
+
+  return '<div class="pie-wrap">' +
+    '<svg class="pie" viewBox="0 0 140 140" width="140" height="140" role="img" aria-label="占比图">' +
+    paths +
+    '<circle cx="' + cx + '" cy="' + cy + '" r="30" fill="#fff"></circle>' +
+    '<text x="' + cx + '" y="' + (cy - 2) + '" text-anchor="middle" class="pie-total">' + total + '</text>' +
+    '<text x="' + cx + '" y="' + (cy + 13) + '" text-anchor="middle" class="pie-total-label">任务</text>' +
+    '</svg>' +
+    '<div class="pie-legend">' + legend + '</div>' +
+    '</div>';
+}
+
+/**
+ * 渲染一个统计图表卡。
+ * @param {object} opts
+ *   - moduleId  模块 id（'all' 首页汇总）
+ *   - state     数据
+ *   - today     今天
+ *   - title     卡片标题
+ */
+export function chartCard(opts) {
+  const o = opts || {};
+  const moduleId = o.moduleId;
+  const today = o.today || date.todayStr();
+  const st = getChartState(moduleId);
+  const logicRef = o.logic;
+
+  const summary = logicRef.chartSummary(o.state, moduleId, st.range, today);
+  const buckets = logicRef.chartBuckets(o.state, moduleId, st.range, today);
+  const slices = logicRef.chartSlices(o.state, moduleId, st.range, today);
+  const maxTotal = buckets.reduce((n, b) => Math.max(n, b.total), 0);
+
+  const rangeTabs = '<div class="pill-tabs chart-range">' +
+    logicRef.RANGE_OPTIONS.map((r) =>
+      '<button type="button" class="pill-tab' + (r.key === st.range ? ' active' : '') +
+      '" data-act="chart-range" data-range="' + r.key + '">' + escapeHtml(r.label) + '</button>').join('') +
+    '</div>';
+
+  // 明细：选了柱子/扇区就看那一段，没选就看整个时间范围
+  const detailTasks = logicRef.chartDetailTasks(o.state, moduleId, st.range, today, st.bucket);
+  const detailTitle = st.bucket
+    ? (detailTasks.length ? '这一段的 ' + detailTasks.length + ' 条' : '这一段没有任务')
+    : (detailTasks.length ? '共 ' + detailTasks.length + ' 条' : '还没有任务');
+
+  const detail = '<div class="chart-detail">' +
+    '<div class="chart-detail-head">' + escapeHtml(detailTitle) +
+    (st.bucket ? ' <button type="button" class="btn btn-sm" data-act="chart-clear">看全部</button>' : '') +
+    '</div>' +
+    (detailTasks.length
+      ? '<div class="list list-scroll">' +
+        detailTasks.slice(0, 50).map((t) => taskRow(t, { today })).join('') +
+        (detailTasks.length > 50 ? '<div class="muted small" style="padding:6px 10px">只显示前 50 条</div>' : '') +
+        '</div>'
+      : '<div class="chart-empty small">没有可显示的条目</div>') +
+    '</div>';
+
+  return '<div class="chart-head">' +
+    rangeTabs +
+    '<span class="spacer"></span>' +
+    '<span class="chart-summary">共 <b>' + summary.total + '</b> 条 · 已完成 <b>' + summary.done +
+    '</b> · 完成率 <b>' + summary.percent + '%</b></span>' +
+    '</div>' +
+    '<div class="chart-body">' +
+    '<div class="chart-block">' +
+    '<div class="chart-block-title">每天完成情况' + (st.range === 'year' || st.range === 'all' ? '（按月）' : '') + '</div>' +
+    barChart(buckets, st.bucket, maxTotal) +
+    '</div>' +
+    '<div class="chart-block">' +
+    '<div class="chart-block-title">' + (moduleId === 'all' ? '任务分布（按模块）' : '完成占比') + '</div>' +
+    pieChart(slices, st.bucket, moduleId) +
+    '</div>' +
+    '</div>' +
+    detail;
+}
+
+/**
+ * 处理图表上的点击。
+ * @returns {boolean} 是否已被图表处理
+ */
+export function handleChartClick(act, moduleId, rerender) {
+  const type = act.getAttribute('data-act');
+  if (type !== 'chart-range' && type !== 'chart-bucket' && type !== 'chart-slice' && type !== 'chart-clear') {
+    return false;
+  }
+  const st = getChartState(moduleId);
+
+  if (type === 'chart-range') {
+    st.range = act.getAttribute('data-range');
+    st.bucket = null; // 换范围时清掉旧的选择，避免选到不存在的桶
+    if (rerender) rerender();
+    return true;
+  }
+
+  if (type === 'chart-clear') {
+    st.bucket = null;
+    if (rerender) rerender();
+    return true;
+  }
+
+  const key = act.getAttribute('data-key');
+  st.bucket = st.bucket === key ? null : key;
+  if (rerender) rerender();
+  return true;
+}
+
 /* ---------------- 任务操作弹窗 ---------------- */
 
 /**

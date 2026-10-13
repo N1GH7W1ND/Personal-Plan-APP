@@ -557,6 +557,163 @@ test('日历聚合：模块标签中文名正确', () => {
   eq(logic.moduleLabel('unknown'), '通用');
 });
 
+/* ---------------- 图表聚合 ---------------- */
+
+test('图表时间范围：本周/本月/今年/全部的起止边界', () => {
+  // 2026-10-08 是周四，本周应为 10-05(一) ~ 10-11(日)
+  const w = logic.rangeBounds('week', '2026-10-08');
+  eq(w.from, '2026-10-05', '本周应从周一开始');
+  eq(w.to, '2026-10-11', '本周应到周日结束');
+
+  const m = logic.rangeBounds('month', '2026-10-08');
+  eq(m.from, '2026-10-01', '本月应从 1 号开始');
+  eq(m.to, '2026-10-31', '本月应到 31 号结束（10 月有 31 天）');
+
+  const feb = logic.rangeBounds('month', '2026-02-10');
+  eq(feb.to, '2026-02-28', '2026 年 2 月应到 28 号');
+
+  const y = logic.rangeBounds('year', '2026-10-08');
+  eq(y.from, '2026-01-01', '今年应从 1 月 1 日');
+  eq(y.to, '2026-12-31', '今年应到 12 月 31 日');
+
+  const all = logic.rangeBounds('all', '2026-10-08');
+  eq(all.from, '', '全部不应有起点限制');
+  eq(all.to, null, '全部不应有终点限制');
+  eq(all.label, '全部');
+
+  deepEq(logic.RANGE_KEYS, ['week', 'month', 'year', 'all'], '时间范围选项应固定');
+});
+
+test('图表：柱形图按天分桶（本周固定 7 天）', () => {
+  const s = fresh();
+  logic.addTask(s, { title: 'A', module: 'dev', date: '2026-10-05' });
+  logic.addTask(s, { title: 'B', module: 'dev', date: '2026-10-05', done: true });
+  logic.addTask(s, { title: 'C', module: 'dev', date: '2026-10-08' });
+  logic.addTask(s, { title: 'D', module: 'dev', date: '2026-10-20' }); // 下周，不该出现
+
+  const buckets = logic.chartBuckets(s, 'dev', 'week', '2026-10-08');
+  eq(buckets.length, 7, '本周应固定 7 个柱子');
+  eq(buckets[0].key, '2026-10-05', '第一个是周一');
+  eq(buckets[0].total, 2, '周一应有 2 条');
+  eq(buckets[0].done, 1, '周一完成 1 条');
+  eq(buckets[3].total, 1, '周四应有 1 条');
+  eq(buckets[6].key, '2026-10-11', '最后一个是周日');
+  eq(buckets.reduce((n, b) => n + b.total, 0), 3, '下周的任务不应计入');
+});
+
+test('图表：柱形图按月分桶时覆盖整月每一天', () => {
+  const s = fresh();
+  logic.addTask(s, { title: 'A', module: 'dev', date: '2026-10-31' });
+  const buckets = logic.chartBuckets(s, 'dev', 'month', '2026-10-08');
+  eq(buckets.length, 31, '10 月应有 31 个柱子');
+  eq(buckets[30].key, '2026-10-31', '最后一个应是 31 号');
+  eq(buckets[30].total, 1);
+  eq(buckets[0].total, 0, '没有任务的日子也要显示（为 0）');
+});
+
+test('图表：今年/全部按月分桶，只列出有数据的月份', () => {
+  const s = fresh();
+  logic.addTask(s, { title: 'A', module: 'dev', date: '2026-03-05' });
+  logic.addTask(s, { title: 'B', module: 'dev', date: '2026-03-20', done: true });
+  logic.addTask(s, { title: 'C', module: 'dev', date: '2026-10-01' });
+  logic.addTask(s, { title: 'D', module: 'dev', date: '2025-12-31' }); // 去年
+
+  const year = logic.chartBuckets(s, 'dev', 'year', '2026-10-08');
+  deepEq(year.map((b) => b.key), ['2026-03', '2026-10'], '今年只应出现有数据的月份');
+  eq(year[0].label, '3月');
+  eq(year[0].total, 2);
+  eq(year[0].done, 1);
+  eq(year.reduce((n, b) => n + b.total, 0), 3, '去年的不应计入今年');
+
+  const all = logic.chartBuckets(s, 'dev', 'all', '2026-10-08');
+  deepEq(all.map((b) => b.key), ['2025-12', '2026-03', '2026-10'], '全部应含去年，且按时间排序');
+});
+
+test('图表：模块页扇形图是"完成 / 未完成"，首页扇形图按模块分布', () => {
+  const s = fresh();
+  logic.addTask(s, { title: 'A', module: 'dev', date: '2026-10-08' });
+  logic.addTask(s, { title: 'B', module: 'dev', date: '2026-10-08', done: true });
+  logic.addTask(s, { title: 'C', module: 'study', date: '2026-10-08' });
+  logic.addTask(s, { title: 'D', module: 'fitness', date: '2026-10-08' });
+
+  const devPie = logic.chartSlices(s, 'dev', 'week', '2026-10-08');
+  const byKey = {};
+  for (const x of devPie) byKey[x.key] = x.value;
+  eq(byKey.done, 1, '开发页应显示已完成 1');
+  eq(byKey.pending, 1, '开发页应显示未完成 1');
+  eq(devPie.length, 2, '模块页扇形图应只有两块');
+
+  const allPie = logic.chartSlices(s, 'all', 'week', '2026-10-08');
+  const modKeys = allPie.map((x) => x.key).sort();
+  deepEq(modKeys, ['dev', 'fitness', 'study'], '首页扇形图应按模块分布');
+  const devSlice = allPie.find((x) => x.key === 'dev');
+  eq(devSlice.label, '开发工作', '扇区应带中文模块名');
+  eq(devSlice.value, 2, '开发应有 2 条');
+  ok(devSlice.color, '扇区应有颜色');
+
+  // 没有数据时返回空数组
+  const empty = fresh();
+  deepEq(logic.chartSlices(empty, 'dev', 'week', '2026-10-08'), [], '没有数据时扇形图为空');
+});
+
+test('图表：统计摘要给出总数/已完成/完成率', () => {
+  const s = fresh();
+  logic.addTask(s, { title: 'A', module: 'dev', date: '2026-10-08' });
+  logic.addTask(s, { title: 'B', module: 'dev', date: '2026-10-08', done: true });
+  logic.addTask(s, { title: 'C', module: 'dev', date: '2026-10-08', done: true });
+  logic.addTask(s, { title: 'D', module: 'dev', date: '2026-10-09' });
+
+  const sum = logic.chartSummary(s, 'dev', 'week', '2026-10-08');
+  eq(sum.total, 4);
+  eq(sum.done, 2);
+  eq(sum.pending, 2);
+  eq(sum.percent, 50, '完成率应四舍五入到整数百分比');
+
+  const empty = fresh();
+  const s0 = logic.chartSummary(empty, 'dev', 'week', '2026-10-08');
+  eq(s0.percent, 0, '没有任务时完成率应为 0 而不是 NaN');
+});
+
+test('图表：点某根柱子能拿到那一段的具体任务', () => {
+  const s = fresh();
+  logic.addTask(s, { title: '周一的事', module: 'dev', date: '2026-10-05' });
+  logic.addTask(s, { title: '周四的事', module: 'dev', date: '2026-10-08' });
+  logic.addTask(s, { title: '学习的事', module: 'study', date: '2026-10-05' });
+
+  const day = logic.chartDetailTasks(s, 'dev', 'week', '2026-10-08', '2026-10-05');
+  eq(day.length, 1, '点周一应只看到开发模块那天的 1 条');
+  eq(day[0].title, '周一的事');
+
+  const month = logic.chartDetailTasks(s, 'dev', 'week', '2026-10-08', '2026-10');
+  eq(month.length, 2, '按月份 key 查时应汇总整月');
+
+  const none = logic.chartDetailTasks(s, 'dev', 'week', '2026-10-08', null);
+  eq(none.length, 2, '不传 key 时应返回整个范围');
+
+  const allModules = logic.chartDetailTasks(s, 'all', 'week', '2026-10-08', '2026-10-05');
+  eq(allModules.length, 2, '首页汇总应含所有模块');
+});
+
+test('图表：扇形图扇区的 key 也能筛明细（完成/未完成/模块）', () => {
+  const s = fresh();
+  logic.addTask(s, { title: 'A 做完了', module: 'dev', date: '2026-10-08', done: true });
+  logic.addTask(s, { title: 'B 还没做', module: 'dev', date: '2026-10-08' });
+  logic.addTask(s, { title: 'C 学习', module: 'study', date: '2026-10-08' });
+
+  const done = logic.chartDetailTasks(s, 'dev', 'week', '2026-10-08', 'done');
+  deepEq(done.map((t) => t.title), ['A 做完了'], 'key=done 应只留已完成');
+
+  const pending = logic.chartDetailTasks(s, 'dev', 'week', '2026-10-08', 'pending');
+  deepEq(pending.map((t) => t.title), ['B 还没做'], 'key=pending 应只留未完成');
+
+  const byModule = logic.chartDetailTasks(s, 'all', 'week', '2026-10-08', 'study');
+  deepEq(byModule.map((t) => t.title), ['C 学习'], 'key=模块 id 应只留该模块');
+
+  // 非法 key 退回整个范围，不返回空
+  const bogus = logic.chartDetailTasks(s, 'all', 'week', '2026-10-08', '不存在的键');
+  eq(bogus.length, 3, '无法识别的 key 应退回整个范围');
+});
+
 /* ---------------- 首页摘要 ---------------- */
 
 test('dataAttrs 不会把 data- 前缀重复叠加（回归：曾生成 data-data-ex 导致按钮失效）', async () => {

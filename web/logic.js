@@ -1063,6 +1063,199 @@ export function calendarDayCount(state, moduleId, year, month) {
 }
 
 /* ============================================================
+   统计聚合（图表用）
+   ============================================================ */
+
+/** 图表可选的时间范围 */
+export const RANGE_OPTIONS = [
+  { key: 'week', label: '本周' },
+  { key: 'month', label: '本月' },
+  { key: 'year', label: '今年' },
+  { key: 'all', label: '全部' },
+];
+export const RANGE_KEYS = RANGE_OPTIONS.map((r) => r.key);
+
+/**
+ * 把时间范围换算成起止日期（含端点）。
+ * @returns {{from:string, to:string|null, label:string}} to 为 null 表示不限
+ */
+export function rangeBounds(rangeKey, today) {
+  const t = today || date.todayStr();
+  switch (rangeKey) {
+    case 'week':
+      return { from: date.startOfWeek(t), to: date.addDays(date.startOfWeek(t), 6), label: '本周' };
+    case 'month': {
+      const d = date.parseDateStr(t);
+      const first = date.toDateStr(new Date(d.getFullYear(), d.getMonth(), 1));
+      const last = date.toDateStr(new Date(d.getFullYear(), d.getMonth() + 1, 0));
+      return { from: first, to: last, label: '本月' };
+    }
+    case 'year': {
+      const d = date.parseDateStr(t);
+      return {
+        from: date.toDateStr(new Date(d.getFullYear(), 0, 1)),
+        to: date.toDateStr(new Date(d.getFullYear(), 11, 31)),
+        label: '今年',
+      };
+    }
+    default:
+      return { from: '', to: null, label: '全部' };
+  }
+}
+
+/** 某条任务是否落在范围内 */
+function inRange(day, bounds) {
+  if (!date.isValidDateStr(day)) return false;
+  if (bounds.from && day < bounds.from) return false;
+  if (bounds.to && day > bounds.to) return false;
+  return true;
+}
+
+/**
+ * 取某个模块在时间范围内的任务。
+ * @param {string} moduleId 'all' 表示所有模块
+ */
+export function tasksInRange(state, moduleId, rangeKey, today) {
+  const bounds = rangeBounds(rangeKey, today);
+  return state.tasks.filter((t) => {
+    if (moduleId && moduleId !== 'all' && t.module !== moduleId) return false;
+    return inRange(t.date, bounds);
+  });
+}
+
+/**
+ * 柱形图数据：按天（本周/本月）或按月（今年/全部）分桶。
+ * 每个桶给出总数与完成数。
+ */
+export function chartBuckets(state, moduleId, rangeKey, today) {
+  const t = today || date.todayStr();
+  const list = tasksInRange(state, moduleId, rangeKey, t);
+  const byDay = rangeKey === 'week' || rangeKey === 'month';
+
+  const buckets = [];
+  if (rangeKey === 'week') {
+    // 本周：固定 7 天，即使某天没有任务也要显示
+    const week = date.weekDates(t);
+    for (const day of week) {
+      const items = list.filter((x) => x.date === day);
+      buckets.push({
+        key: day,
+        label: date.WEEK_CN[date.weekdayNum(day) - 1],
+        sub: date.fmtShort(day),
+        total: items.length,
+        done: items.filter((x) => x.done).length,
+      });
+    }
+    return buckets;
+  }
+
+  if (rangeKey === 'month') {
+    const d = date.parseDateStr(t);
+    const days = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    for (let i = 1; i <= days; i++) {
+      const day = date.monthDay(d.getFullYear(), d.getMonth() + 1, i);
+      const items = list.filter((x) => x.date === day);
+      buckets.push({
+        key: day,
+        label: String(i),
+        sub: date.fmtShort(day),
+        total: items.length,
+        done: items.filter((x) => x.done).length,
+      });
+    }
+    return buckets;
+  }
+
+  // 今年 / 全部：按月分桶
+  const map = {};
+  for (const item of list) {
+    const m = String(item.date).slice(0, 7); // YYYY-MM
+    if (!map[m]) map[m] = { total: 0, done: 0 };
+    map[m].total += 1;
+    if (item.done) map[m].done += 1;
+  }
+  const keys = Object.keys(map).sort();
+  return keys.map((m) => ({
+    key: m,
+    label: Number(m.slice(5, 7)) + '月',
+    sub: m,
+    total: map[m].total,
+    done: map[m].done,
+  }));
+}
+
+/**
+ * 扇形图数据。
+ * - 模块页（moduleId 不是 all）：按"完成 / 未完成"分两块
+ * - 首页（all）：按模块分布
+ */
+export function chartSlices(state, moduleId, rangeKey, today) {
+  const list = tasksInRange(state, moduleId, rangeKey, today);
+
+  if (moduleId && moduleId !== 'all') {
+    const done = list.filter((t) => t.done).length;
+    const pending = list.length - done;
+    const slices = [];
+    if (done) slices.push({ key: 'done', label: '已完成', value: done, color: 'var(--ok)' });
+    if (pending) slices.push({ key: 'pending', label: '未完成', value: pending, color: 'var(--primary)' });
+    return slices;
+  }
+
+  // 按模块分布
+  const colors = {
+    dev: 'var(--m-dev)',
+    study: 'var(--m-study)',
+    fitness: 'var(--m-fitness)',
+    diet: 'var(--m-diet)',
+    general: 'var(--m-general)',
+  };
+  const counts = {};
+  for (const t of list) counts[t.module] = (counts[t.module] || 0) + 1;
+  return Object.keys(counts)
+    .sort((a, b) => counts[b] - counts[a])
+    .map((id) => ({
+      key: id,
+      label: moduleLabel(id),
+      value: counts[id],
+      color: colors[id] || 'var(--m-general)',
+      done: list.filter((t) => t.module === id && t.done).length,
+    }));
+}
+
+/** 图表上方的一句话统计 */
+export function chartSummary(state, moduleId, rangeKey, today) {
+  const bounds = rangeBounds(rangeKey, today);
+  const list = tasksInRange(state, moduleId, rangeKey, today);
+  const done = list.filter((t) => t.done).length;
+  return {
+    label: bounds.label + (moduleId === 'all' ? '（全部模块）' : '（' + moduleLabel(moduleId) + '）'),
+    total: list.length,
+    done,
+    pending: list.length - done,
+    percent: list.length ? Math.round((done / list.length) * 100) : 0,
+  };
+}
+
+/** 点某个桶/扇区后，列出具体内容 */
+export function chartDetailTasks(state, moduleId, rangeKey, today, bucketKey) {
+  const list = tasksInRange(state, moduleId, rangeKey, today);
+  const key = bucketKey == null ? '' : String(bucketKey);
+
+  // 日期范围图（柱形图）的桶 key 是"天"（YYYY-MM-DD）或"月"（YYYY-MM）
+  if (/^\d{4}-\d{2}/.test(key)) {
+    return list.filter((t) => String(t.date).startsWith(key));
+  }
+
+  // 其余情况按"扇形图扇区"理解：
+  //   key='done'  只留已完成；key='pending' 只留未完成；key=模块 id 只留该模块
+  if (key === 'done') return list.filter((t) => t.done);
+  if (key === 'pending') return list.filter((t) => !t.done);
+  if (MODULE_IDS.includes(key)) return list.filter((t) => t.module === key);
+
+  return list;
+}
+
+/* ============================================================
    首页摘要（"待你处理"）
    ============================================================ */
 
