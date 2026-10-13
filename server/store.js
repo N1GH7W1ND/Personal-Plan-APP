@@ -16,22 +16,6 @@ try {
   revealDataDir = () => ({ ok: false, message: '当前系统不支持自动打开文件夹' });
 }
 
-/** 默认的健身周安排：推 / 拉 / 腿 / 休 循环（与前端 logic.js 保持一致） */
-function defaultFitnessRoutine() {
-  let seq = 0;
-  const ex = (name, sets, reps) => ({ id: 'e_' + Date.now().toString(36) + (seq++).toString(36), name, sets, reps });
-  const day = (label, rest, exercises) => ({ label, rest: !!rest, exercises: exercises || [] });
-  return [
-    day('胸 + 三头', false, [ex('卧推', 4, 12), ex('上斜哑铃卧推', 3, 10), ex('绳索下压', 3, 15)]),
-    day('背 + 二头', false, [ex('引体向上', 4, 8), ex('坐姿划船', 3, 12), ex('哑铃弯举', 3, 12)]),
-    day('腿 + 肩', false, [ex('深蹲', 4, 10), ex('腿举', 3, 12), ex('哑铃推举', 3, 12)]),
-    day('休息', true, []),
-    day('胸 + 三头', false, [ex('卧推', 4, 12), ex('上斜哑铃卧推', 3, 10), ex('绳索下压', 3, 15)]),
-    day('背 + 二头', false, [ex('引体向上', 4, 8), ex('坐姿划船', 3, 12), ex('哑铃弯举', 3, 12)]),
-    day('休息', true, []),
-  ];
-}
-
 /** 空数据模板（首次运行时的初始状态） */
 function emptyState() {
   return {
@@ -43,9 +27,8 @@ function emptyState() {
     devTasks: [],
     devIdeas: [],
     studyItems: [],
-    fitness: { routine: defaultFitnessRoutine(), records: {} },
     diet: { meals: {}, recipes: [], shopping: [] },
-    settings: { fitnessWeeklyGoal: 5, density: 'comfortable' },
+    settings: { density: 'comfortable' },
   };
 }
 
@@ -85,8 +68,8 @@ function normalize(input) {
   if (!input || typeof input !== 'object') return base;
   const out = Object.assign(base, input);
 
-  // 已移除模块的字段直接丢掉（自媒体、咨询工作、游戏娱乐）
-  const removedFields = ['media', 'consultTasks', 'consultRecords', 'games', 'playPlan', 'studyLog'];
+  // 已移除模块的字段直接丢掉（自媒体、咨询工作、游戏娱乐、健身计划）
+  const removedFields = ['media', 'consultTasks', 'consultRecords', 'games', 'playPlan', 'studyLog', 'fitness'];
   for (const f of removedFields) delete out[f];
 
   const arrFields = ['tasks', 'notes', 'devTasks', 'devIdeas', 'studyItems'];
@@ -95,16 +78,8 @@ function normalize(input) {
   }
 
   // 已移除模块名下的任务也一并清掉（模块本身已不存在，留着会变成无处可去的孤儿数据）
-  const removedModuleIds = ['media', 'consult', 'game'];
+  const removedModuleIds = ['media', 'consult', 'game', 'fitness'];
   out.tasks = out.tasks.filter((t) => t && !removedModuleIds.includes(t.module));
-
-  if (!out.fitness || typeof out.fitness !== 'object') out.fitness = { routine: defaultFitnessRoutine(), records: {} };
-  if (!Array.isArray(out.fitness.routine) || out.fitness.routine.length === 0) {
-    out.fitness.routine = defaultFitnessRoutine();
-  }
-  if (!out.fitness.records || typeof out.fitness.records !== 'object' || Array.isArray(out.fitness.records)) {
-    out.fitness.records = {};
-  }
 
   if (!out.diet || typeof out.diet !== 'object') out.diet = { meals: {}, recipes: [], shopping: [] };
   if (!out.diet.meals || typeof out.diet.meals !== 'object' || Array.isArray(out.diet.meals)) out.diet.meals = {};
@@ -112,9 +87,9 @@ function normalize(input) {
   if (!Array.isArray(out.diet.shopping)) out.diet.shopping = [];
 
   if (!out.settings || typeof out.settings !== 'object') out.settings = {};
-  if (typeof out.settings.fitnessWeeklyGoal !== 'number' || !Number.isFinite(out.settings.fitnessWeeklyGoal)) {
-    out.settings.fitnessWeeklyGoal = 5;
-  }
+  // 健身模块移除后，设置里的健身目标也成了无用字段，一并清掉
+  const removedSettings = ['fitnessWeeklyGoal'];
+  for (const k of removedSettings) delete out.settings[k];
   if (out.settings.density !== 'compact' && out.settings.density !== 'comfortable') {
     out.settings.density = 'comfortable';
   }

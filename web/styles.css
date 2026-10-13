@@ -38,7 +38,6 @@
   /* 各模块主题色（用于标签、图表、日历圆点） */
   --m-dev: #3b5bdb;
   --m-study: #7048e8;
-  --m-fitness: #d9483b;
   --m-diet: #c47a10;
   --m-general: #5c6579;
 
@@ -556,7 +555,6 @@ a { color: var(--primary); text-decoration: none; }
 
 .tag.m-dev     { background: #e8eeff; color: var(--m-dev); }
 .tag.m-study   { background: #efe9fd; color: var(--m-study); }
-.tag.m-fitness { background: #fdeae8; color: var(--m-fitness); }
 .tag.m-diet    { background: #fdf1de; color: var(--m-diet); }
 .tag.m-general { background: #eef0f4; color: var(--m-general); }
 
@@ -835,52 +833,7 @@ a { color: var(--primary); text-decoration: none; }
 .icon-btn:disabled { opacity: .32; cursor: not-allowed; }
 
 /* ---------------- 分组打卡格 ---------------- */
-
-.set-grid {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-
-.set-box {
-  width: 20px; height: 20px;
-  border: 1.5px solid var(--line-strong);
-  border-radius: 5px;
-  background: #fff;
-  cursor: pointer;
-  padding: 0;
-  font-size: 10px;
-  color: transparent;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.set-box:hover { border-color: var(--m-fitness); }
-.set-box.on { background: var(--m-fitness); border-color: var(--m-fitness); color: #fff; }
-
-.week-grid {
-  display: flex;
-  gap: 7px;
-  flex-wrap: wrap;
-}
-
-.week-cell {
-  width: 62px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  padding: 7px 4px;
-  text-align: center;
-  font-size: 11.5px;
-  background: #fff;
-  cursor: pointer;
-}
-
-.week-cell:hover { border-color: var(--primary); }
-.week-cell.done { background: var(--ok-weak); border-color: #a9dcc0; color: #1d7a44; font-weight: 600; }
-.week-cell.rest { background: #f7f8fa; color: var(--text-3); }
-.week-cell.today { box-shadow: 0 0 0 2px var(--primary) inset; }
-.week-cell-tag { display: block; font-size: 10.5px; color: var(--text-3); margin-top: 3px; }
+/* 原来只有健身计划用，该模块已移除，样式一并清理 */
 
 /* ---------------- 图表（柱形图 / 扇形图） ---------------- */
 

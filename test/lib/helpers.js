@@ -208,16 +208,11 @@ function sampleState() {
     updatedAt: null,
     tasks: [],
     notes: [],
-    media: [],
     devTasks: [],
     devIdeas: [],
-    consultTasks: [],
-    consultRecords: [],
-    fitness: { routine: [], records: {} },
+    studyItems: [],
     diet: { meals: {}, recipes: [], shopping: [] },
-    games: [],
-    playPlan: [],
-    settings: { fitnessWeeklyGoal: 5, density: 'comfortable' },
+    settings: { density: 'comfortable' },
   };
 }
 

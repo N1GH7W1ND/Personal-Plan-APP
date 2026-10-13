@@ -52,9 +52,13 @@ t.test('交付件齐全：启动脚本、说明、停止脚本、需求与计划
   }
 });
 
-t.test('前端 9 个视图文件齐全', async () => {
-  for (const v of ['home', 'today', 'dev', 'study', 'fitness', 'diet', 'settings']) {
+t.test('前端 6 个视图文件齐全，且已移除模块的视图不存在', async () => {
+  for (const v of ['home', 'today', 'dev', 'study', 'diet', 'settings']) {
     t.ok(exists('web/views/' + v + '.js'), '缺少视图 web/views/' + v + '.js');
+  }
+  // 已移除模块的视图不该还在磁盘上
+  for (const gone of ['media', 'consult', 'games', 'fitness']) {
+    t.eq(exists('web/views/' + gone + '.js'), false, '已移除的视图不该存在：web/views/' + gone + '.js');
   }
 });
 
@@ -100,7 +104,7 @@ t.test('没有任何外网请求或外链资源', async () => {
 
 t.test('代码里没有把未实现功能伪装成已实现（无 TODO 占位冒烟）', async () => {
   const files = ['web/views/home.js', 'web/views/today.js', 'web/views/dev.js', 'web/views/study.js',
-    'web/views/fitness.js', 'web/views/diet.js', 'web/views/settings.js'];
+    'web/views/diet.js', 'web/views/settings.js'];
   for (const f of files) {
     const text = read(f);
     t.notIncludes(text, '正在开发中', f + ' 仍是占位实现');
@@ -111,7 +115,7 @@ t.test('代码里没有把未实现功能伪装成已实现（无 TODO 占位冒
 
 t.test('PRD 明确不做的事，代码里也没有偷偷做', async () => {
   // 第一版不做趋势统计与数据回填
-  const views = ['web/views/dev.js', 'web/views/study.js', 'web/views/fitness.js', 'web/views/diet.js'];
+  const views = ['web/views/dev.js', 'web/views/study.js', 'web/views/diet.js'];
   for (const f of views) {
     const code = codeOnly(read(f));
     t.notIncludes(code, '播放量', f + ' 出现了播放量回填');
@@ -125,7 +129,7 @@ t.test('PRD 明确不做的事，代码里也没有偷偷做', async () => {
   t.notIncludes(homeCode, '推荐', '首页代码里不应有推荐逻辑');
   t.notIncludes(homeCode, '自动生成', '首页代码里不应自动生成任务');
   // 首页也不应调用任何"生成任务"的推送函数
-  for (const fn of ['pushFitnessToToday', 'pushPlayToToday', 'pushMealToToday']) {
+  for (const fn of ['pushStudyToToday', 'pushMealToToday']) {
     t.notIncludes(homeCode, fn, '首页不应自动调用 ' + fn);
   }
 });
@@ -331,11 +335,11 @@ t.test('PRD 第 10 节的验收标准条目齐全（原 49 条 + 范围调整后
   }
 
   // 已移除模块对应的验收项必须明确标注作废，不能含糊
-  for (const id of ['C1', 'C2', 'C3', 'C6', 'C7', 'C14', 'C15']) {
+  for (const id of ['C1', 'C2', 'C3', 'C6', 'C7', 'C8', 'C9', 'C10', 'C11', 'C14', 'C15']) {
     t.includes(prd, '| ~~' + id + '~~ |', '已移除模块的验收项 ' + id + ' 应标注作废');
   }
   // 仍然有效的分模块条目不能被误删
-  for (const id of ['C4', 'C5', 'C8', 'C9', 'C10', 'C11', 'C12', 'C13']) {
+  for (const id of ['C4', 'C5', 'C12', 'C13']) {
     t.includes(prd, '| ' + id + ' |', '仍然有效的验收项 ' + id + ' 应保留');
     t.notIncludes(prd, '| ~~' + id + '~~ |', '仍然有效的验收项 ' + id + ' 不应被标为作废');
   }
@@ -345,15 +349,48 @@ t.test('PRD 第 10 节的验收标准条目齐全（原 49 条 + 范围调整后
   for (const id of ['R1.1', 'R1.2', 'R1.3', 'R1.4',
     'R4.1', 'R4.2', 'R4.3', 'R4.4',
     'R5.1', 'R5.2', 'R5.3', 'R5.4',
-    'R6.1', 'R6.2', 'R6.3', 'R6.4', 'R6.5', 'R6.6',
+    'R6.1', 'R6.2', 'R6.3', 'R6.4', 'R6.5',
     'R7.1', 'R7.2', 'R7.3', 'R7.4', 'R7.5', 'R7.6', 'R7.7',
     'R8.1', 'R8.2', 'R8.3', 'R8.4']) {
     t.includes(prd, '| ' + id + ' |', 'PRD 应含新增验收项 ' + id);
   }
 
   // 导航入口数与模块数应与代码一致（文档不能与实现脱节）
-  t.includes(prd, '**7 个**导航入口', 'PRD 应写明当前是 7 个导航入口');
-  t.includes(prd, '任务可归属 5 个', 'PRD 应写明任务可归属 5 个模块');
+  t.includes(prd, '**6 个**导航入口', 'PRD 应写明当前是 6 个导航入口');
+  t.includes(prd, '任务可归属 4 个', 'PRD 应写明任务可归属 4 个模块');
+});
+
+t.test('文档与源码里没有控制字符，反引号也不该落单', async () => {
+  // 起因：用 PowerShell 的 -replace 写含反引号的文本时，`f 会被当成转义符变成换页符，
+  // 一次就把 PRD 里的 "fitness" 写成了 "\fitness"（看起来像 itness）。
+  // 这类字符肉眼很难发现，所以固化成检查。
+  const files = ['PRD.md', 'README.md', 'DEV-PLAN.md',
+    'docs/验收覆盖结论.md', 'docs/页面结构与交互设计-v1.md'];
+
+  for (const f of files) {
+    if (!exists(f)) continue;
+    const text = read(f);
+
+    // 1. 不该有除 换行/回车/制表 以外的控制字符
+    const ctrl = [];
+    for (const ch of text) {
+      const code = ch.charCodeAt(0);
+      if (code < 32 && ch !== '\n' && ch !== '\r' && ch !== '\t') {
+        ctrl.push('0x' + code.toString(16).padStart(2, '0'));
+      }
+    }
+    t.eq(ctrl.length, 0, f + ' 里不应有控制字符（发现 ' + ctrl.join(', ') + '）');
+
+    // 2. 每行的反引号应当成对（代码块围栏除外），落单说明有字符被吃掉了
+    const lines = text.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      if (/^\s*```/.test(lines[i])) continue;
+      const n = (lines[i].match(/`/g) || []).length;
+      if (n % 2 !== 0) {
+        t.ok(false, f + ' 第 ' + (i + 1) + ' 行反引号落单：' + lines[i].trim().slice(0, 60));
+      }
+    }
+  }
 });
 
 t.run();

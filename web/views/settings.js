@@ -14,7 +14,6 @@ function dataCounts(state) {
     { num: state.notes.length, label: '备忘' },
     { num: state.devTasks.length + state.devIdeas.length, label: '开发（含灵感）' },
     { num: state.studyItems.length, label: '学习条目' },
-    { num: Object.keys(state.fitness.records).length, label: '健身记录' },
     { num: state.diet.recipes.length + state.diet.shopping.length, label: '菜谱与采买' },
     { num: logic.studyMinutesTotal(state), label: '累计学习(分钟)' },
   ];
@@ -69,10 +68,6 @@ export default {
       sub: '改了立刻生效',
       body:
         '<div class="field-row">' +
-        '<div class="field"><label class="field-label">本周健身目标（天）</label>' +
-        ui.select('fitnessWeeklyGoal', String(state.settings.fitnessWeeklyGoal),
-          [1, 2, 3, 4, 5, 6, 7].map((n) => ({ value: String(n), label: n + ' 天' }))) +
-        '</div>' +
         '<div class="field"><label class="field-label">界面密度</label>' +
         ui.select('density', state.settings.density, [
           { value: 'comfortable', label: '舒适' },
@@ -171,14 +166,6 @@ export default {
 
   mounted(root, ctx) {
     // 偏好设置：改完立刻写入
-    const goal = root.querySelector('[data-field="fitnessWeeklyGoal"]');
-    if (goal) {
-      goal.onchange = () => {
-        const v = Number(goal.value);
-        ctx.dispatch((s) => logic.setWeeklyGoal(s, v), '改健身目标天数');
-        ui.toast('本周健身目标已改为 ' + v + ' 天', { type: 'ok', duration: 2000 });
-      };
-    }
     const density = root.querySelector('[data-field="density"]');
     if (density) {
       density.onchange = () => {

@@ -30,47 +30,29 @@ t.test('空状态模板字段齐全', async () => {
   for (const f of ['tasks', 'notes', 'devTasks', 'devIdeas', 'studyItems']) {
     t.ok(Array.isArray(s[f]), f + ' 应为数组');
   }
-  t.deepEq(s.fitness.records, {}, 'fitness.records 结构');
   t.deepEq(s.diet, { meals: {}, recipes: [], shopping: [] }, 'diet 结构');
-  t.eq(s.settings.fitnessWeeklyGoal, 5, '默认每周健身目标');
   t.eq(s.settings.density, 'comfortable', '默认界面密度');
-});
-
-t.test('服务端空模板自带完整的健身周安排（磁盘文件自描述）', async () => {
-  const s = h.store.emptyState();
-  t.eq(s.fitness.routine.length, 7, '应有 7 天安排');
-  t.ok(s.fitness.routine.some((d) => d.rest), '应有休息日');
-  t.ok(s.fitness.routine.some((d) => !d.rest && d.exercises.length > 0), '应有训练日与动作');
-  for (const day of s.fitness.routine) {
-    for (const e of day.exercises) {
-      t.ok(e.id && e.name && e.sets > 0 && e.reps > 0, '动作应字段完整：' + JSON.stringify(e));
-    }
+  // 已移除模块的字段不应再出现在空模板里
+  for (const gone of ['fitness', 'media', 'consultTasks', 'consultRecords', 'games', 'playPlan']) {
+    t.eq(gone in s, false, '空模板不应再有 ' + gone + ' 字段');
   }
-
-  await resetDir('default-routine');
-  const back = await h.store.read();
-  t.eq(back.state.fitness.routine.length, 7, '从磁盘读回的空数据也应有 7 天安排');
-
-  t.eq(h.store.normalize({}).fitness.routine.length, 7, 'normalize 空对象也应补齐周安排');
-  t.eq(h.store.normalize({ fitness: { routine: [], records: {} } }).fitness.routine.length, 7,
-    'routine 为空数组时应补齐');
+  t.eq('fitnessWeeklyGoal' in s.settings, false, '设置里不应再有健身目标');
 });
 
 t.test('normalize 能容忍残缺/手改数据', async () => {
   const n = h.store.normalize({ tasks: 'not-an-array', fitness: null, diet: 5, settings: { density: 'weird' } });
   t.deepEq(n.tasks, [], 'tasks 应被修正为空数组');
-  t.eq(n.fitness.routine.length, 7, 'fitness 应被补齐成完整周安排');
-  t.deepEq(n.fitness.records, {}, 'fitness.records 应被补齐');
   t.deepEq(n.diet, { meals: {}, recipes: [], shopping: [] }, 'diet 应被补齐');
   t.eq(n.settings.density, 'comfortable', '非法 density 应回落到 comfortable');
-  t.eq(n.settings.fitnessWeeklyGoal, 5, '非法目标天数应回落为 5');
+  t.eq('fitness' in n, false, '传进来的已移除模块字段应被丢掉');
+  t.eq('fitnessWeeklyGoal' in n.settings, false, '设置里的健身目标也应被丢掉');
 
   const n2 = h.store.normalize(null);
   t.eq(n2.schemaVersion, 1, '传入 null 也应返回合法模板');
   t.ok(Array.isArray(n2.tasks), 'tasks 应为数组');
 
   const n3 = h.store.normalize({ fitness: { records: [1, 2] }, diet: { meals: [] } });
-  t.deepEq(n3.fitness.records, {}, 'fitness.records 是数组时应修正为对象');
+  t.eq('fitness' in n3, false, '已移除模块字段应被丢掉');
   t.deepEq(n3.diet.meals, {}, 'diet.meals 是数组时应修正为对象');
 });
 
@@ -582,7 +564,6 @@ t.test('GET /api/health 会统计各类数据条数', async () => {
     s.studyItems.push({ id: 's1', title: '看完事件循环', kind: 'read', status: 'doing', minutes: 30 });
     s.diet.recipes.push({ id: 'rc1', name: '番茄牛腩', note: '' });
     s.diet.shopping.push({ id: 'sp1', name: '牛腩', bought: false });
-    s.fitness.records['2026-10-08'] = { label: '胸+三头', exercises: {}, finished: true };
   });
 
   const r = await h.req(server.port, 'GET', '/api/health');
@@ -594,10 +575,9 @@ t.test('GET /api/health 会统计各类数据条数', async () => {
   t.eq(r.json.stats['学习条目'], 1, '学习条目数');
   t.eq(r.json.stats['菜谱'], 1, '菜谱数');
   t.eq(r.json.stats['采买'], 1, '采买数');
-  t.eq(r.json.stats['健身记录'], 1, '健身记录数');
 
   // 已移除模块的统计项不应再出现
-  for (const gone of ['自媒体', '咨询待办', '咨询记录', '游戏', '放松安排']) {
+  for (const gone of ['自媒体', '咨询待办', '咨询记录', '游戏', '放松安排', '健身记录']) {
     t.eq(r.json.stats[gone], undefined, '不应再有「' + gone + '」统计项');
   }
 });
@@ -652,6 +632,7 @@ t.test('读取时会清理旧字段并写回磁盘（回归：清理只发生在
     tasks: [
       { id: 't_keep', title: '送学生证', module: 'general', date: '2026-10-13', done: false },
       { id: 't_drop', title: '自媒体任务', module: 'media', date: '2026-10-13', done: false },
+      { id: 't_fit', title: '健身任务', module: 'fitness', date: '2026-10-13', done: false },
     ],
     notes: [],
     media: [{ id: 'm1', title: '抖音发布我的视频' }],
@@ -659,7 +640,10 @@ t.test('读取时会清理旧字段并写回磁盘（回归：清理只发生在
     devIdeas: [],
     consultTasks: [{ id: 'c1', title: '咨询导员' }],
     consultRecords: [],
-    fitness: { routine: [], records: {} },
+    fitness: {
+      routine: [{ label: '胸 + 三头', rest: false, exercises: [{ id: 'e1', name: '卧推', sets: 4, reps: 12 }] }],
+      records: { '2026-10-08': { label: '胸 + 三头', exercises: {}, finished: true } },
+    },
     diet: { meals: {}, recipes: [], shopping: [] },
     games: [{ id: 'g1', name: '塞尔达' }],
     playPlan: [],
@@ -672,6 +656,7 @@ t.test('读取时会清理旧字段并写回磁盘（回归：清理只发生在
   fs.writeFileSync(h.dataFile(dataDir), JSON.stringify(legacy, null, 2) + '\n', 'utf8');
   const onDiskBefore = fs.readFileSync(h.dataFile(dataDir), 'utf8');
   t.includes(onDiskBefore, '"media"', '前置条件：磁盘上确实还有旧字段');
+  t.includes(onDiskBefore, '"fitness"', '前置条件：磁盘上确实还有健身字段');
 
   const r = await h.store.read();
 
@@ -683,6 +668,8 @@ t.test('读取时会清理旧字段并写回磁盘（回归：清理只发生在
   // 内存里是干净的
   t.eq(r.state.media, undefined, '内存状态里不该有 media');
   t.eq(r.state.games, undefined, '内存状态里不该有 games');
+  t.eq(r.state.fitness, undefined, '内存状态里不该有 fitness');
+  t.eq('fitnessWeeklyGoal' in r.state.settings, false, '设置里不该还有健身目标');
   t.ok(Array.isArray(r.state.studyItems), '应补上 studyItems');
   t.eq(r.state.tasks.length, 1, '只应留下不属于已移除模块的任务');
   t.eq(r.state.tasks[0].title, '送学生证', '通用任务必须保留');
@@ -692,6 +679,9 @@ t.test('读取时会清理旧字段并写回磁盘（回归：清理只发生在
   t.notIncludes(onDiskAfter, '"media"', '磁盘文件里不该再有 media');
   t.notIncludes(onDiskAfter, '"consultTasks"', '磁盘文件里不该再有 consultTasks');
   t.notIncludes(onDiskAfter, '"games"', '磁盘文件里不该再有 games');
+  t.notIncludes(onDiskAfter, '"fitness"', '磁盘文件里不该再有 fitness');
+  t.notIncludes(onDiskAfter, '卧推', '健身周安排也不该留在文件里');
+  t.notIncludes(onDiskAfter, '健身任务', '健身模块名下的任务也不该留在文件里');
   t.notIncludes(onDiskAfter, '自媒体任务', '被删模块名下的任务也不该留在文件里');
   t.includes(onDiskAfter, '送学生证', '通用任务应仍在文件里');
 

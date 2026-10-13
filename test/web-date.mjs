@@ -63,7 +63,7 @@ test('date.js 内部不使用 UTC 截取的方式取日期', () => {
 test('前端各模块源码里没有用 toISOString().slice(0,10) 取日期', () => {
   const files = ['app.js', 'store.js', 'logic.js', 'router.js', 'ui.js', 'api.js',
     'views/home.js', 'views/today.js', 'views/dev.js', 'views/study.js',
-    'views/fitness.js', 'views/diet.js', 'views/settings.js'];
+    'views/diet.js', 'views/settings.js'];
   for (const f of files) {
     const abs = join(ROOT, 'web', f);
     // 这些文件都是必须存在的：缺文件应当直接报出来，而不是被静默跳过
@@ -72,7 +72,7 @@ test('前端各模块源码里没有用 toISOString().slice(0,10) 取日期', ()
     eq(/toISOString\s*\(\s*\)\s*\.\s*slice/.test(code), false, f + ' 里用 toISOString().slice 取日期了');
   }
   // 已移除的模块视图不应还在磁盘上
-  for (const gone of ['views/media.js', 'views/consult.js', 'views/games.js']) {
+  for (const gone of ['views/media.js', 'views/consult.js', 'views/games.js', 'views/fitness.js']) {
     eq(existsSync(join(ROOT, 'web', gone)), false, '已移除的视图不该还存在：web/' + gone);
   }
 });
@@ -219,7 +219,7 @@ test('样式表：括号配对，且 var() 引用的变量都有定义', () => {
   // 核心变量必须存在（缺了会让整页配色失效）
   for (const v of ['--bg', '--panel', '--text', '--text-2', '--text-3',
     '--primary', '--primary-weak', '--line', '--radius', '--shadow',
-    '--m-dev', '--m-study', '--m-fitness', '--m-diet', '--ok', '--danger', '--warn']) {
+    '--m-dev', '--m-study', '--m-diet', '--ok', '--danger', '--warn']) {
     ok(defined.has(v), '应定义设计变量 ' + v);
   }
 });

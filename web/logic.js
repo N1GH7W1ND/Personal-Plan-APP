@@ -18,7 +18,6 @@ export const APP_TITLE = '我的工作台';
 export const MODULES = [
   { id: 'dev', name: '开发工作', short: '开发' },
   { id: 'study', name: '学习', short: '学习' },
-  { id: 'fitness', name: '健身计划', short: '健身' },
   { id: 'diet', name: '饮食计划', short: '饮食' },
   { id: 'general', name: '通用', short: '通用' },
 ];
@@ -50,7 +49,6 @@ export const NAV_ITEMS = [
   { id: 'today', name: '今日计划', icon: '☑' },
   { id: 'dev', name: '开发工作', icon: '⌘' },
   { id: 'study', name: '学习', icon: '✎' },
-  { id: 'fitness', name: '健身计划', icon: '⚡' },
   { id: 'diet', name: '饮食计划', icon: '◍' },
   { id: 'settings', name: '数据与设置', icon: '⚙' },
 ];
@@ -63,6 +61,7 @@ export const REMOVED_MODULES = [
   { id: 'media', name: '自媒体', legacyFields: ['media'] },
   { id: 'consult', name: '咨询工作', legacyFields: ['consultTasks', 'consultRecords'] },
   { id: 'game', name: '游戏娱乐', legacyFields: ['games', 'playPlan'] },
+  { id: 'fitness', name: '健身计划', legacyFields: ['fitness'] },
 ];
 
 /** 状态枚举与中文标签 */
@@ -101,21 +100,6 @@ export function clone(v) {
   return JSON.parse(JSON.stringify(v));
 }
 
-/** 默认的健身周安排：推 / 拉 / 腿 / 休 循环 */
-export function defaultFitnessRoutine() {
-  const ex = (name, sets, reps) => ({ id: newId('e'), name, sets, reps });
-  const day = (label, rest, exercises) => ({ label, rest: !!rest, exercises: exercises || [] });
-  return [
-    day('胸 + 三头', false, [ex('卧推', 4, 12), ex('上斜哑铃卧推', 3, 10), ex('绳索下压', 3, 15)]),
-    day('背 + 二头', false, [ex('引体向上', 4, 8), ex('坐姿划船', 3, 12), ex('哑铃弯举', 3, 12)]),
-    day('腿 + 肩', false, [ex('深蹲', 4, 10), ex('腿举', 3, 12), ex('哑铃推举', 3, 12)]),
-    day('休息', true, []),
-    day('胸 + 三头', false, [ex('卧推', 4, 12), ex('上斜哑铃卧推', 3, 10), ex('绳索下压', 3, 15)]),
-    day('背 + 二头', false, [ex('引体向上', 4, 8), ex('坐姿划船', 3, 12), ex('哑铃弯举', 3, 12)]),
-    day('休息', true, []),
-  ];
-}
-
 /** 全新的空数据 */
 export function createInitialState() {
   return {
@@ -127,9 +111,8 @@ export function createInitialState() {
     devTasks: [],
     devIdeas: [],
     studyItems: [],
-    fitness: { routine: defaultFitnessRoutine(), records: {} },
     diet: { meals: {}, recipes: [], shopping: [] },
-    settings: { fitnessWeeklyGoal: 5, density: 'comfortable' },
+    settings: { density: 'comfortable' },
   };
 }
 
@@ -147,7 +130,15 @@ export function purgeRemovedModules(input) {
       if (!(field in input)) continue;
       const v = input[field];
       if (Array.isArray(v)) count += v.length;
-      else if (v && typeof v === 'object') count += Object.keys(v).length;
+      else if (v && typeof v === 'object') {
+        // 嵌套对象：把各子字段的条数加起来（如 fitness.records 的打卡天数）
+        count += Object.keys(v).reduce((n, k) => {
+          const child = v[k];
+          if (Array.isArray(child)) return n + child.length;
+          if (child && typeof child === 'object') return n + Object.keys(child).length;
+          return n + 1;
+        }, 0);
+      }
       delete input[field];
     }
     // 这些模块名下的任务也一并清掉（模块本身已不存在）
@@ -174,21 +165,14 @@ export function normalizeState(input) {
     if (!Array.isArray(out[f])) out[f] = [];
   }
 
-  if (!out.fitness || typeof out.fitness !== 'object') out.fitness = { routine: defaultFitnessRoutine(), records: {} };
-  if (!Array.isArray(out.fitness.routine) || out.fitness.routine.length === 0) {
-    out.fitness.routine = defaultFitnessRoutine();
-  }
-  if (!out.fitness.records || typeof out.fitness.records !== 'object' || Array.isArray(out.fitness.records)) {
-    out.fitness.records = {};
-  }
-
   if (!out.diet || typeof out.diet !== 'object') out.diet = { meals: {}, recipes: [], shopping: [] };
   if (!out.diet.meals || typeof out.diet.meals !== 'object' || Array.isArray(out.diet.meals)) out.diet.meals = {};
   if (!Array.isArray(out.diet.recipes)) out.diet.recipes = [];
   if (!Array.isArray(out.diet.shopping)) out.diet.shopping = [];
 
   if (!out.settings || typeof out.settings !== 'object') out.settings = {};
-  if (!Number.isFinite(out.settings.fitnessWeeklyGoal)) out.settings.fitnessWeeklyGoal = 5;
+  // 健身模块移除后，设置里的健身目标也没用了
+  delete out.settings.fitnessWeeklyGoal;
   if (out.settings.density !== 'compact' && out.settings.density !== 'comfortable') out.settings.density = 'comfortable';
 
   out.schemaVersion = 1;
@@ -630,192 +614,6 @@ export function unhandledIdeas(state) {
   return state.devIdeas.filter((i) => !i.handled);
 }
 
-/* ============================================================
-   健身
-   ============================================================ */
-
-/** 今天该练什么：routine[本地星期 - 1] */
-export function todayRoutine(state, day) {
-  const d = day || date.todayStr();
-  const idx = date.weekdayNum(d) - 1;
-  const routine = state.fitness.routine || [];
-  if (!routine.length) return { label: '休息', rest: true, exercises: [] };
-  return routine[idx % routine.length];
-}
-
-export function weekdayRoutine(state, weekday) {
-  const routine = state.fitness.routine || [];
-  if (!routine.length) return { label: '休息', rest: true, exercises: [] };
-  return routine[(weekday - 1 + 7) % 7];
-}
-
-/** 某天的训练记录（不存在则不创建） */
-export function fitnessRecord(state, day) {
-  return state.fitness.records[day || date.todayStr()] || null;
-}
-
-/** 取得（必要时创建）某天的训练记录 */
-export function ensureFitnessRecord(state, day) {
-  const d = day || date.todayStr();
-  if (!state.fitness.records[d]) {
-    const r = todayRoutine(state, d);
-    const exercises = {};
-    for (const e of r.exercises || []) {
-      exercises[e.id] = { sets: e.sets, doneSets: new Array(e.sets).fill(false) };
-    }
-    state.fitness.records[d] = { label: r.label, rest: !!r.rest, exercises, finished: false };
-  }
-  return state.fitness.records[d];
-}
-
-/** 点一下某个小方块：切换某一组的完成状态 */
-export function toggleFitnessSet(state, day, exerciseId, setIndex) {
-  const rec = ensureFitnessRecord(state, day);
-  const entry = rec.exercises[exerciseId];
-  if (!entry) return null;
-  if (setIndex < 0 || setIndex >= entry.doneSets.length) return null;
-  entry.doneSets[setIndex] = !entry.doneSets[setIndex];
-  rec.finished = isRecordAllDone(rec);
-  return rec;
-}
-
-/** 完成整项：该项所有组一次性点亮（全亮则全部熄灭，便于改错） */
-export function toggleFitnessExercise(state, day, exerciseId) {
-  const rec = ensureFitnessRecord(state, day);
-  const entry = rec.exercises[exerciseId];
-  if (!entry) return null;
-  const allOn = entry.doneSets.length > 0 && entry.doneSets.every(Boolean);
-  entry.doneSets = entry.doneSets.map(() => !allOn);
-  rec.finished = isRecordAllDone(rec);
-  return rec;
-}
-
-export function isRecordAllDone(rec) {
-  if (!rec) return false;
-  const entries = Object.values(rec.exercises || {});
-  if (entries.length === 0) return false;
-  return entries.every((e) => e.doneSets.length > 0 && e.doneSets.every(Boolean));
-}
-
-/** 今日训练是否全部完成 */
-export function fitnessExercisesAllDone(state, day) {
-  const rec = fitnessRecord(state, day);
-  return isRecordAllDone(rec);
-}
-
-/** 整日打卡 */
-export function finishFitnessDay(state, day) {
-  const rec = ensureFitnessRecord(state, day);
-  rec.finished = true;
-  return rec;
-}
-
-export function unfinishFitnessDay(state, day) {
-  const rec = fitnessRecord(state, day);
-  if (!rec) return null;
-  rec.finished = false;
-  return rec;
-}
-
-/** 本周已打卡天数（周一到今天） */
-export function fitnessWeekDoneCount(state, today) {
-  const d = today || date.todayStr();
-  const week = date.weekDates(d);
-  const todayIdx = date.weekdayNum(d) - 1;
-  let n = 0;
-  for (let i = 0; i <= todayIdx; i++) {
-    const rec = state.fitness.records[week[i]];
-    if (rec && rec.finished) n++;
-  }
-  return n;
-}
-
-/** 本周概览：每天是否已打卡 / 是否休息日 */
-export function fitnessWeekOverview(state, today) {
-  const d = today || date.todayStr();
-  const week = date.weekDates(d);
-  const todayIdx = date.weekdayNum(d) - 1;
-  return week.map((day, i) => {
-    const rec = state.fitness.records[day];
-    const routine = weekdayRoutine(state, i + 1);
-    return {
-      date: day,
-      weekday: i + 1,
-      label: routine.label,
-      rest: !!routine.rest,
-      done: !!(rec && rec.finished),
-      isToday: i === todayIdx,
-      isFuture: i > todayIdx,
-    };
-  });
-}
-
-/** 补记某天已练 */
-export function markFitnessDay(state, day, done) {
-  if (done) return finishFitnessDay(state, day);
-  return unfinishFitnessDay(state, day);
-}
-
-/** 健身动作增删改 */
-export function addFitnessExercise(state, weekday, input) {
-  const r = weekdayRoutine(state, weekday);
-  const src = input || {};
-  const name = String(src.name == null ? '' : src.name).trim();
-  if (!name || r.rest) return null;
-  const e = {
-    id: newId('e'),
-    name,
-    sets: Math.max(1, Number(src.sets) || 3),
-    reps: Math.max(1, Number(src.reps) || 10),
-  };
-  r.exercises.push(e);
-  return e;
-}
-
-export function updateFitnessExercise(state, weekday, exerciseId, patch) {
-  const r = weekdayRoutine(state, weekday);
-  const e = (r.exercises || []).find((x) => x.id === exerciseId);
-  if (!e) return null;
-  const p = patch || {};
-  if (p.name != null) {
-    const name = String(p.name).trim();
-    if (name) e.name = name;
-  }
-  if (p.sets != null) e.sets = Math.max(1, Number(p.sets) || e.sets);
-  if (p.reps != null) e.reps = Math.max(1, Number(p.reps) || e.reps);
-  return e;
-}
-
-export function removeFitnessExercise(state, weekday, exerciseId) {
-  const r = weekdayRoutine(state, weekday);
-  const i = (r.exercises || []).findIndex((x) => x.id === exerciseId);
-  if (i === -1) return null;
-  const [removed] = r.exercises.splice(i, 1);
-  return removed;
-}
-
-/** 周安排：改标签或切成休息日 */
-export function setRoutineDay(state, weekday, patch) {
-  const r = weekdayRoutine(state, weekday);
-  const p = patch || {};
-  if (p.label != null) {
-    const label = String(p.label).trim();
-    if (label) r.label = label;
-  }
-  if (p.rest != null) {
-    r.rest = !!p.rest;
-    if (r.rest) r.exercises = [];
-  }
-  return r;
-}
-
-/** 把今天的训练推到今日计划 */
-export function pushFitnessToToday(state, day) {
-  const d = day || date.todayStr();
-  const r = todayRoutine(state, d);
-  if (r.rest) return null;
-  return addTask(state, { title: r.label + ' 训练', module: 'fitness', date: d });
-}
 
 /* ============================================================
    饮食
@@ -942,12 +740,6 @@ export function pushMealToToday(state, mealKey, day) {
    设置
    ============================================================ */
 
-export function setWeeklyGoal(state, n) {
-  const v = Math.max(1, Math.min(7, Number(n) || 5));
-  state.settings.fitnessWeeklyGoal = v;
-  return v;
-}
-
 export function setDensity(state, value) {
   state.settings.density = value === 'compact' ? 'compact' : 'comfortable';
   return state.settings.density;
@@ -960,7 +752,6 @@ export function setDensity(state, value) {
 const MODULE_LABELS = {
   dev: '开发工作',
   study: '学习',
-  fitness: '健身计划',
   diet: '饮食计划',
   general: '通用',
 };
@@ -996,7 +787,7 @@ export function tasksByDayInMonth(state, moduleId, year, month) {
  * 某模块的"日历当日标记"。
  * 返回 { 'YYYY-MM-DD': { total, done, extra } }：
  *   total / done —— 当天任务总数与完成数
- *   extra        —— 该模块特有的标记文案（如健身"已练"、饮食"三餐已定 2/3"）
+ *   extra        —— 该模块特有的标记文案（如饮食"三餐已定 2/3"）
  */
 export function calendarMarks(state, moduleId, year, month) {
   const map = tasksByDayInMonth(state, moduleId, year, month);
@@ -1015,14 +806,6 @@ export function calendarMarks(state, moduleId, year, month) {
   }
 
   const prefix = monthPrefix(year, month);
-
-  if (moduleId === 'fitness') {
-    for (const [day, rec] of Object.entries(state.fitness.records || {})) {
-      if (!day.startsWith(prefix) || !rec) continue;
-      const m = ensure(day);
-      m.extra = rec.finished ? '已练' : (rec.label || '训练');
-    }
-  }
 
   if (moduleId === 'diet') {
     for (const [day, meals] of Object.entries(state.diet.meals || {})) {
@@ -1205,7 +988,6 @@ export function chartSlices(state, moduleId, rangeKey, today) {
   const colors = {
     dev: 'var(--m-dev)',
     study: 'var(--m-study)',
-    fitness: 'var(--m-fitness)',
     diet: 'var(--m-diet)',
     general: 'var(--m-general)',
   };
@@ -1287,19 +1069,6 @@ export function homeSummary(state, today) {
       route: 'dev',
       anchor: 'ideas',
       level: 'warn',
-    });
-  }
-
-  const done = fitnessWeekDoneCount(state, d);
-  const goal = state.settings.fitnessWeeklyGoal;
-  if (done < goal) {
-    out.push({
-      key: 'fitness-week',
-      text: '本周健身 ' + done + '/' + goal + ' 天',
-      detail: '还差 ' + (goal - done) + ' 天',
-      route: 'fitness',
-      anchor: 'week',
-      level: 'normal',
     });
   }
 

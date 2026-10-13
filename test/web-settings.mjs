@@ -157,9 +157,8 @@ test('导出备份能拿到包含全部数据的文件（F1）', async () => {
   eq(parsed.tasks.length, before.tasks.length, '任务条数应一致');
   eq(parsed.notes.length, before.notes.length, '备忘条数应一致');
   eq(parsed.studyItems.length, before.studyItems.length, '学习条目数应一致');
-  ok(Array.isArray(parsed.fitness.routine) && parsed.fitness.routine.length === 7, '应含完整健身周安排');
   // 已移除模块的内容不应出现在导出文件里
-  for (const gone of ['media', 'consultTasks', 'consultRecords', 'games', 'playPlan']) {
+  for (const gone of ['media', 'consultTasks', 'consultRecords', 'games', 'playPlan', 'fitness']) {
     eq(gone in parsed, false, '导出文件不应含已移除模块字段 ' + gone);
   }
 
@@ -243,9 +242,8 @@ test('界面上选文件恢复：先弹确认，确认后才覆盖', async () =>
       tasks: [{ id: 't_ui', title: '来自界面恢复', module: 'dev', date: date.todayStr(), done: false }],
       notes: [],
       devTasks: [], devIdeas: [], studyItems: [],
-      fitness: { routine: [], records: {} },
       diet: { meals: {}, recipes: [], shopping: [] },
-      settings: { fitnessWeeklyGoal: 5, density: 'comfortable' },
+      settings: { density: 'comfortable' },
     }),
   };
 
@@ -340,35 +338,17 @@ test('清空前会自动备份一次', async () => {
 });
 
 /* ============================================================
-   偏好设置（F6 相关）
+   偏好设置
    ============================================================ */
 
-test('改本周健身目标天数立刻生效', async () => {
+test('设置页不再有健身目标（模块已移除）', async () => {
   await store.clearAll();
   await go('settings');
 
   const goal = view().querySelector('[data-field="fitnessWeeklyGoal"]');
-  ok(goal, '应有健身目标下拉');
-  eq(goal.value, '5', '默认是 5 天');
-
-  goal.value = '4';
-  goal.fire('change');
-  await waitRender();
-
-  eq(store.getState().settings.fitnessWeeklyGoal, 4, '设置应写进数据');
-  await store.flushNow();
-  eq(readDisk().settings.fitnessWeeklyGoal, 4, '设置应落盘');
-
-  // 健身页与首页摘要应跟着变
-  await go('fitness');
-  ok(view().innerHTML.includes('/4'), '健身页目标应显示 4：' + view().innerHTML.slice(0, 200));
-
-  await go('home');
-  // 本周还没练，摘要应提示 x/4
-  const done = logic.fitnessWeekDoneCount(store.getState(), date.todayStr());
-  if (done < 4) {
-    ok(view().innerHTML.includes(done + '/4'), '首页摘要应显示 ' + done + '/4');
-  }
+  eq(goal, null, '健身目标下拉应已移除');
+  notOk(view().innerHTML.includes('健身'), '设置页不该再出现健身字样');
+  eq('fitnessWeeklyGoal' in store.getState().settings, false, '数据里也不该再有健身目标');
 });
 
 test('改界面密度会切换紧凑模式并落盘', async () => {

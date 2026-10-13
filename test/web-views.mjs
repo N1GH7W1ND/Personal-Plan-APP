@@ -114,7 +114,7 @@ test('首页渲染出今日计划、快速补一条、快速备忘三个区块',
 
 test('首页不出现任何自动生成或推荐的任务入口（PRD E1）', () => {
   const html = view().innerHTML;
-  notOk(html.includes('安排健身'), '不应出现"安排健身"这类推荐入口');
+  notOk(html.includes('安排训练'), '不应出现"安排训练"这类推荐入口');
   notOk(html.includes('智能'), '不应出现智能建议字样');
   notOk(html.includes('推荐'), '不应出现推荐字样');
   const state = store.getState();
@@ -172,14 +172,14 @@ test('首页与弹窗的模块下拉只含导航里的模块，且与导航一�
   deepEq(modalOptIds, optIds, '两处下拉应完全一致');
 
   // 弹窗里选一个模块提交，验证落到的模块正确
-  modal().querySelector('[data-field="title"]').value = '顺手记一条健身计划';
-  modalSel.value = 'fitness';
+  modal().querySelector('[data-field="title"]').value = '顺手记一条饮食安排';
+  modalSel.value = 'diet';
   findByAct(modal(), 'save')[0].click();
   await waitRender();
 
-  const created = store.getState().tasks.find((t) => t.title === '顺手记一条健身计划');
+  const created = store.getState().tasks.find((t) => t.title === '顺手记一条饮食安排');
   ok(created, '弹窗提交应生成任务');
-  eq(created.module, 'fitness', '应落到所选模块');
+  eq(created.module, 'diet', '应落到所选模块');
 });
 
 test('首页勾选任务后，同一份数据在今日计划里也是已完成（PRD B2）', async () => {
@@ -296,7 +296,7 @@ test('逾期任务可以一次性全部挪到今天（PRD B7）', async () => {
   const d2 = date.addDays(date.todayStr(), -2);
   store.dispatch((s) => {
     logic.addTask(s, { title: '欠账一', module: 'dev', date: d1 });
-    logic.addTask(s, { title: '欠账二', module: 'fitness', date: d2 });
+    logic.addTask(s, { title: '欠账二', module: 'study', date: d2 });
   });
   await waitRender();
   assertNoViewError();

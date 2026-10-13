@@ -95,16 +95,16 @@ t.test('GET /api/health 返回应用标识与数据路径', async () => {
   t.ok(typeof r.json.stats === 'object' && r.json.stats !== null, 'stats 应存在');
 });
 
-t.test('GET / 返回页面外壳，含 7 个导航入口', async () => {
+t.test('GET / 返回页面外壳，含 6 个导航入口', async () => {
   const r = await h.req(server.port, 'GET', '/');
   t.eq(r.status, 200, '首页状态码');
   t.includes(r.headers['content-type'], 'text/html', '首页 Content-Type');
-  const routes = ['home', 'today', 'dev', 'study', 'fitness', 'diet', 'settings'];
+  const routes = ['home', 'today', 'dev', 'study', 'diet', 'settings'];
   for (const name of routes) {
     t.includes(r.raw, 'data-route="' + name + '"', '导航缺少入口 ' + name);
   }
   // 已移除的模块不应再出现在导航里
-  for (const gone of ['media', 'consult', 'games']) {
+  for (const gone of ['media', 'consult', 'games', 'fitness']) {
     t.notIncludes(r.raw, 'data-route="' + gone + '"', '导航里不应再有 ' + gone);
   }
   t.includes(r.raw, 'id="view"', '缺少视图容器');

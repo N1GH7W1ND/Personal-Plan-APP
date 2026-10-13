@@ -1,7 +1,7 @@
 /**
  * 阶段 5 测试：七个功能模块
  * 端到端：真实服务 + 真实视图渲染 + 模拟点击。
- * 覆盖开发工作、学习、健身计划、饮食计划四个模块，以及"已移除模块"的收口检查。
+ * 覆盖开发工作、学习、饮食计划三个模块，以及日历、图表与"已移除模块"的收口检查。
  */
 
 import { test, after, setFile, eq, deepEq, ok, notOk } from './run-frontend.mjs';
@@ -182,176 +182,6 @@ test('开发：推送到今日生成开发任务', async () => {
   const created = logic.tasksOn(store.getState(), date.todayStr()).find((t) => t.module === 'dev');
   ok(created, '应生成开发任务');
   eq(created.title, item.title, '任务标题应与待办一致');
-});
-
-/* ============================================================
-   健身计划（C8–C11）
-   ============================================================ */
-
-/** 确保今天有训练日且有一个"组数 = 3"的动作，返回该动作（从最新数据里取） */
-async function ensureTrainingExercise(name) {
-  const today = date.todayStr();
-  const weekday = date.weekdayNum(today);
-  const routine = logic.todayRoutine(store.getState(), today);
-  if (routine.rest || !routine.exercises.length) {
-    store.dispatch((s) => logic.setRoutineDay(s, weekday, { rest: false, label: '测试训练' }));
-    store.dispatch((s) => logic.addFitnessExercise(s, weekday, { name, sets: 3, reps: 12 }));
-    await waitRender();
-  }
-  let list = logic.todayRoutine(store.getState(), today).exercises;
-  let target = list.find((e) => e.sets === 3) || list[0];
-  if (!target) {
-    store.dispatch((s) => logic.addFitnessExercise(s, weekday, { name, sets: 3, reps: 12 }));
-    await waitRender();
-    list = logic.todayRoutine(store.getState(), today).exercises;
-    target = list[0];
-  }
-  ok(target, '今天应有可打卡的动作');
-  // 从最新数据里重新取一份，避免拿到旧引用
-  return logic.todayRoutine(store.getState(), today).exercises.find((e) => e.id === target.id) || target;
-}
-
-test('健身：按周安排显示今天该练的部位（C8）', async () => {
-  await reset();
-  await go('fitness');
-  const today = date.todayStr();
-  const expected = logic.todayRoutine(store.getState(), today);
-
-  ok(view().innerHTML.includes(expected.label), '应显示今天的部位：' + expected.label);
-
-  const tomorrow = date.addDays(today, 1);
-  eq(logic.todayRoutine(store.getState(), tomorrow).label,
-    store.getState().fitness.routine[date.weekdayNum(tomorrow) - 1].label,
-    '明天应取 routine 里对应位置');
-});
-
-test('健身：逐组打卡点一下亮一格（C9）', async () => {
-  await reset();
-  await go('fitness');
-  const today = date.todayStr();
-  const ex = await ensureTrainingExercise('卧推');
-
-  const boxesOf = () => findByAct(view(), 'fit-set').filter((el) => el.getAttribute('data-ex') === ex.id);
-
-  const boxes = boxesOf();
-  eq(boxes.length, ex.sets, '应渲染出 ' + ex.sets + ' 个小方块');
-  deepEq(boxes.map((b) => b.classList.contains('on')), new Array(ex.sets).fill(false), '初始都未点亮');
-
-  // 点第一组：只有它亮
-  boxes[0].click();
-  await waitRender();
-  const expected = new Array(ex.sets).fill(false);
-  expected[0] = true;
-  deepEq(logic.fitnessRecord(store.getState(), today).exercises[ex.id].doneSets, expected, '只点亮第一组');
-  deepEq(boxesOf().map((b) => b.classList.contains('on')), expected, '界面上也应该只有第一格亮');
-
-  // 点第三组：第一和第三亮
-  boxesOf()[2].click();
-  await waitRender();
-  const expected2 = new Array(ex.sets).fill(false);
-  expected2[0] = true;
-  expected2[2] = true;
-  deepEq(logic.fitnessRecord(store.getState(), today).exercises[ex.id].doneSets, expected2, '第一和第三组亮');
-
-  // 再点第一组可取消
-  boxesOf()[0].click();
-  await waitRender();
-  const expected3 = new Array(ex.sets).fill(false);
-  expected3[2] = true;
-  deepEq(logic.fitnessRecord(store.getState(), today).exercises[ex.id].doneSets, expected3, '再点应熄灭');
-});
-
-test('健身：完成整项一次点亮该项全部格子（C10）', async () => {
-  await reset();
-  await go('fitness');
-  const today = date.todayStr();
-  const ex = await ensureTrainingExercise('深蹲');
-
-  const btnOf = () => findByAct(view(), 'fit-ex-done').find((el) => el.getAttribute('data-ex') === ex.id);
-  ok(btnOf(), '应有完成整项按钮');
-  btnOf().click();
-  await waitRender();
-
-  const entry = logic.fitnessRecord(store.getState(), today).exercises[ex.id];
-  eq(entry.doneSets.every(Boolean), true, '该项所有组应点亮');
-  eq(entry.doneSets.length, ex.sets, '数量应与组数一致');
-
-  // 再点一次可整体取消，便于改错
-  ok(btnOf(), '仍应有完成整项按钮');
-  btnOf().click();
-  await waitRender();
-  eq(logic.fitnessRecord(store.getState(), today).exercises[ex.id].doneSets.every(Boolean), false, '再点应整体取消');
-});
-
-test('健身：整日打卡与本周概览天数一致（C11）', async () => {
-  const today = date.todayStr();
-  await go('fitness');
-
-  const finish = findByAct(view(), 'fit-finish')[0];
-  ok(finish, '应有打卡按钮');
-  finish.click();
-  await waitRender();
-
-  eq(logic.fitnessRecord(store.getState(), today).finished, true, '今天应记为已练');
-  eq(logic.fitnessWeekDoneCount(store.getState(), today), 1, '本周天数应为 1');
-  ok(findByAct(view(), 'fit-unfinish')[0], '已打卡后应能取消打卡');
-
-  const cell = findByAct(view(), 'fit-week-pick').find((el) => el.getAttribute('data-date') === today);
-  ok(cell, '应能找到今天那格');
-  eq(cell.classList.contains('done'), true, '今天那格应标为已练');
-  ok(cell.textContent.includes('已练'), '文字应显示已练');
-
-  findByAct(view(), 'fit-unfinish')[0].click();
-  await waitRender();
-  eq(logic.fitnessWeekDoneCount(store.getState(), today), 0, '取消后本周天数应回到 0');
-});
-
-test('健身：补记过去某天，本周概览跟着变', async () => {
-  const today = date.todayStr();
-  const week = date.weekDates(today);
-  const todayIdx = date.weekdayNum(today) - 1;
-
-  await go('fitness');
-
-  if (todayIdx === 0) {
-    // 今天就是周一，没有更早的日子可补记，用今天那格验证切换不报错
-    const cell = findByAct(view(), 'fit-week-pick').find((el) => el.getAttribute('data-date') === today);
-    cell.click();
-    await waitRender();
-    ok(logic.fitnessWeekDoneCount(store.getState(), today) >= 0, '切换应不报错');
-    return;
-  }
-
-  const earlier = week[0];
-  const cell = findByAct(view(), 'fit-week-pick').find((el) => el.getAttribute('data-date') === earlier);
-  ok(cell, '应能找到本周更早的一天');
-  cell.click();
-  await waitRender();
-
-  const rec = logic.fitnessRecord(store.getState(), earlier);
-  ok(rec, '应为那天生成记录');
-  eq(rec.finished, true, '应记为已练');
-  eq(logic.fitnessWeekDoneCount(store.getState(), today), 1, '本周天数应 +1');
-});
-
-test('健身：打卡本身不是任务，推送到今日才生成任务（PRD 5.6）', async () => {
-  await reset();
-  await go('fitness');
-  const today = date.todayStr();
-
-  const finish = findByAct(view(), 'fit-finish')[0];
-  if (finish) {
-    finish.click();
-    await waitRender();
-  }
-  eq(logic.tasksOn(store.getState(), today).length, 0, '打卡不应自动生成任务');
-
-  const push = findByAct(view(), 'fit-push')[0];
-  if (push) {
-    push.click();
-    await waitRender();
-    ok(logic.tasksOn(store.getState(), today).find((t) => t.module === 'fitness'), '推送后应生成健身任务');
-  }
 });
 
 /* ============================================================
@@ -596,11 +426,10 @@ test('已移除的模块：导航里进不去，旧路由会回落首页', async
   ok(view().innerHTML.includes('今日计划'), '应渲染首页内容');
 });
 
-test('每个模块都有日历：开发/学习/健身/饮食/今日计划', async () => {
+test('每个模块都有日历：开发/学习/饮食/今日计划', async () => {
   const pages = [
     { route: 'dev', title: '开发日历' },
     { route: 'study', title: '学习日历' },
-    { route: 'fitness', title: '训练日历' },
     { route: 'diet', title: '饮食日历' },
     { route: 'today', title: '任务日历' },
   ];
@@ -702,7 +531,6 @@ test('每个模块都有统计图表，且首页是汇总', async () => {
   const pages = [
     { route: 'dev', title: '开发统计', pie: '完成占比' },
     { route: 'study', title: '学习统计', pie: '完成占比' },
-    { route: 'fitness', title: '健身统计', pie: '完成占比' },
     { route: 'diet', title: '饮食统计', pie: '完成占比' },
     { route: 'home', title: '各模块汇总', pie: '任务分布（按模块）' },
   ];
@@ -880,13 +708,13 @@ test('图表：首页汇总按模块分布，且时间范围切换生效', async
   store.dispatch((s) => {
     logic.addTask(s, { title: '开发1', module: 'dev', date: today });
     logic.addTask(s, { title: '学习1', module: 'study', date: today });
-    logic.addTask(s, { title: '健身1', module: 'fitness', date: today });
+    logic.addTask(s, { title: '饮食1', module: 'diet', date: today });
   });
   await go('home');
   await waitRender();
 
   const sliceKeys = findByAct(view(), 'chart-slice').map((el) => el.getAttribute('data-key'));
-  for (const id of ['dev', 'study', 'fitness']) {
+  for (const id of ['dev', 'study', 'diet']) {
     ok(sliceKeys.includes(id), '汇总图应包含模块 ' + id);
   }
   ok(view().innerHTML.includes('共 <b>3</b> 条'), '应统计到 3 条');

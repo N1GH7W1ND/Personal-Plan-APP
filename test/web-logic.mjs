@@ -18,7 +18,7 @@ function fresh() {
 
 test('模块清单完整且含"通用"兜底', () => {
   const ids = logic.MODULE_IDS;
-  for (const id of ['dev', 'study', 'fitness', 'diet', 'general']) {
+  for (const id of ['dev', 'study', 'diet', 'general']) {
     ok(ids.includes(id), '缺少模块 ' + id);
   }
   eq(logic.moduleName('dev'), '开发');
@@ -53,7 +53,7 @@ test('快速添加的模块列表与左侧导航一致（需求 4）', () => {
 });
 
 test('已移除的模块不再出现在模块清单与导航里', () => {
-  for (const gone of ['media', 'consult', 'game']) {
+  for (const gone of ['media', 'consult', 'game', 'fitness']) {
     eq(logic.MODULE_IDS.includes(gone), false, '模块清单里不应再有 ' + gone);
     eq(logic.NAV_ITEMS.some((n) => n.id === gone || n.id === gone + 's'), false,
       '导航里不应再有 ' + gone);
@@ -62,31 +62,30 @@ test('已移除的模块不再出现在模块清单与导航里', () => {
   eq(logic.moduleName('media'), '通用', '旧数据里的 media 应回落到通用');
   eq(logic.moduleName('consult'), '通用', '旧数据里的 consult 应回落到通用');
   eq(logic.moduleName('game'), '通用', '旧数据里的 game 应回落到通用');
+  eq(logic.moduleName('fitness'), '通用', '旧数据里的 fitness 应回落到通用');
 });
 
-test('导航是 7 个入口且顺序固定', () => {
+test('导航是 6 个入口且顺序固定', () => {
   deepEq(logic.NAV_ITEMS.map((n) => n.id), [
-    'home', 'today', 'dev', 'study', 'fitness', 'diet', 'settings',
+    'home', 'today', 'dev', 'study', 'diet', 'settings',
   ]);
   for (const item of logic.NAV_ITEMS) {
     ok(item.name && item.icon, item.id + ' 应有名称与图标');
   }
 });
 
-test('初始状态字段齐全，健身周安排有 7 天', () => {
+test('初始状态字段齐全，且不含已移除模块', () => {
   const s = fresh();
   eq(s.schemaVersion, 1);
   for (const f of ['tasks', 'notes', 'devTasks', 'devIdeas', 'studyItems']) {
     ok(Array.isArray(s[f]), f + ' 应为数组');
   }
   // 已移除模块的字段不应出现在初始状态里
-  for (const gone of ['media', 'consultTasks', 'consultRecords', 'games', 'playPlan']) {
+  for (const gone of ['media', 'consultTasks', 'consultRecords', 'games', 'playPlan', 'fitness']) {
     eq(gone in s, false, '初始状态不应再有 ' + gone + ' 字段');
   }
-  eq(s.fitness.routine.length, 7, '周安排应有 7 天');
-  ok(s.fitness.routine.some((d) => d.rest), '应至少有一天休息');
-  ok(s.fitness.routine.some((d) => !d.rest && d.exercises.length > 0), '应有训练日且含动作');
-  eq(s.settings.fitnessWeeklyGoal, 5);
+  eq('fitnessWeeklyGoal' in s.settings, false, '设置里不应再有健身目标');
+  deepEq(s.diet, { meals: {}, recipes: [], shopping: [] }, 'diet 结构');
   eq(s.settings.density, 'comfortable');
 });
 
@@ -97,17 +96,23 @@ test('purgeRemovedModules 会清掉旧数据并报告清了多少', () => {
     consultRecords: [{ id: 'r1' }],
     games: [{ id: 'g1' }],
     playPlan: [{ id: 'p1' }],
+    fitness: {
+      routine: [{ label: '胸 + 三头' }],
+      records: { '2026-10-08': { finished: true } },
+    },
     tasks: [
       { id: 't1', module: 'general' },
       { id: 't2', module: 'media' },
       { id: 't3', module: 'consult' },
       { id: 't4', module: 'game' },
+      { id: 't5', module: 'fitness' },
     ],
   };
   const report = logic.purgeRemovedModules(legacy);
 
   eq(legacy.media, undefined, 'media 应被删除');
   eq(legacy.games, undefined, 'games 应被删除');
+  eq(legacy.fitness, undefined, 'fitness 应被删除');
   eq(legacy.tasks.length, 1, '只应留下通用任务');
   eq(legacy.tasks[0].id, 't1');
 
@@ -116,26 +121,17 @@ test('purgeRemovedModules 会清掉旧数据并报告清了多少', () => {
   eq(byId.media.count, 3, '自媒体：2 条内容 + 1 条归属自媒体的任务');
   eq(byId.consult.count, 3, '咨询：1 待办 + 1 记录 + 1 条归属咨询的任务');
   eq(byId.game.count, 3, '游戏：1 游戏 + 1 放松安排 + 1 条归属游戏的任务');
+  // 健身：1 天周安排 + 1 条打卡记录 + 1 条归属健身的任务
+  eq(byId.fitness.count, 3, '健身：周安排与打卡记录也应计入清理报告');
 
   // 干净数据不应产生报告
   deepEq(logic.purgeRemovedModules(logic.createInitialState()), [], '干净数据不应有清理报告');
 });
 
-test('健身动作的组数次数是正整数', () => {
-  const s = fresh();
-  for (const day of s.fitness.routine) {
-    for (const e of day.exercises) {
-      ok(Number.isInteger(e.sets) && e.sets > 0, e.name + ' 组数应为正整数');
-      ok(Number.isInteger(e.reps) && e.reps > 0, e.name + ' 次数应为正整数');
-      ok(typeof e.id === 'string' && e.id.length > 0, e.name + ' 应有 id');
-    }
-  }
-});
-
 test('normalizeState 能修复残缺/手改数据', () => {
   const n = logic.normalizeState({ tasks: 'bad', fitness: null, diet: 5, settings: { density: 'x' } });
   deepEq(n.tasks, []);
-  eq(n.fitness.routine.length, 7, '周安排应被补齐');
+  eq('fitness' in n, false, '已移除模块的字段应被丢掉');
   deepEq(n.diet, { meals: {}, recipes: [], shopping: [] });
   eq(n.settings.density, 'comfortable');
   eq(logic.normalizeState(null).schemaVersion, 1);
@@ -298,10 +294,11 @@ test('各模块今日欠账数', () => {
   const byModule = logic.pendingByModule(s, today);
   eq(byModule.dev, 1);
   eq(byModule.study, 1);
-  eq(byModule.fitness, 0);
+  eq(byModule.diet, 0);
   // 已移除的模块不应再出现在欠账统计里
-  eq('media' in byModule, false, '不应再有 media 欠账统计');
-  eq('game' in byModule, false, '不应再有 game 欠账统计');
+  for (const gone of ['media', 'game', 'fitness', 'consult']) {
+    eq(gone in byModule, false, '不应再有 ' + gone + ' 欠账统计');
+  }
 });
 
 test('datesWithTasks 给出有任务的日期', () => {
@@ -512,20 +509,6 @@ test('日历聚合：按模块与月份分组当天任务，含完成数', () =>
   eq(allMarks[d1].extra, '2 个模块', '应标出当天的模块种类数');
 });
 
-test('日历聚合：健身标记显示是否已练', () => {
-  const s = fresh();
-  const d = '2026-10-08';
-  logic.addTask(s, { title: '训练', module: 'fitness', date: d });
-  logic.finishFitnessDay(s, d);
-  logic.finishFitnessDay(s, '2026-10-09');
-
-  const marks = logic.calendarMarks(s, 'fitness', 2026, 10);
-  eq(marks[d].extra, '已练', '已打卡的日子应标"已练"');
-  eq(marks[d].total, 1, '当天任务数也应统计');
-  eq(marks['2026-10-09'].extra, '已练', '只有打卡记录的日子也要标出来');
-  eq(marks['2026-10-09'].total, 0, '没有任务时任务数为 0');
-});
-
 test('日历聚合：饮食标记显示三餐定了多少', () => {
   const s = fresh();
   const d = '2026-10-08';
@@ -552,9 +535,10 @@ test('日历聚合：空数据返回空对象，天数统计正确', () => {
 test('日历聚合：模块标签中文名正确', () => {
   eq(logic.moduleLabel('dev'), '开发工作');
   eq(logic.moduleLabel('study'), '学习');
-  eq(logic.moduleLabel('fitness'), '健身计划');
   eq(logic.moduleLabel('diet'), '饮食计划');
   eq(logic.moduleLabel('unknown'), '通用');
+  // 已移除模块的标签应回落到通用，而不是留一个"健身计划"
+  eq(logic.moduleLabel('fitness'), '通用', '已移除模块不应还有专属标签');
 });
 
 /* ---------------- 图表聚合 ---------------- */
@@ -634,7 +618,7 @@ test('图表：模块页扇形图是"完成 / 未完成"，首页扇形图按模
   logic.addTask(s, { title: 'A', module: 'dev', date: '2026-10-08' });
   logic.addTask(s, { title: 'B', module: 'dev', date: '2026-10-08', done: true });
   logic.addTask(s, { title: 'C', module: 'study', date: '2026-10-08' });
-  logic.addTask(s, { title: 'D', module: 'fitness', date: '2026-10-08' });
+  logic.addTask(s, { title: 'D', module: 'diet', date: '2026-10-08' });
 
   const devPie = logic.chartSlices(s, 'dev', 'week', '2026-10-08');
   const byKey = {};
@@ -645,7 +629,7 @@ test('图表：模块页扇形图是"完成 / 未完成"，首页扇形图按模
 
   const allPie = logic.chartSlices(s, 'all', 'week', '2026-10-08');
   const modKeys = allPie.map((x) => x.key).sort();
-  deepEq(modKeys, ['dev', 'fitness', 'study'], '首页扇形图应按模块分布');
+  deepEq(modKeys, ['dev', 'diet', 'study'], '首页扇形图应按模块分布');
   const devSlice = allPie.find((x) => x.key === 'dev');
   eq(devSlice.label, '开发工作', '扇区应带中文模块名');
   eq(devSlice.value, 2, '开发应有 2 条');
@@ -731,15 +715,9 @@ test('dataAttrs 不会把 data- 前缀重复叠加（回归：曾生成 data-dat
 test('首页摘要：无内容时返回空数组', () => {
   const s = fresh();
   const today = date.todayStr();
-  // 逐项满足摘要触发条件：三餐已定 + 本周（周一到今天）每天都打卡 + 目标设为已过天数
+  // 满足摘要的触发条件：三餐已定（否则会提醒晚饭没定）
   for (const key of ['breakfast', 'lunch', 'dinner']) {
     logic.setMeal(s, today, key, { text: '已安排' });
-  }
-  const todayIdx = date.weekdayNum(today) - 1;
-  const week = date.weekDates(today);
-  logic.setWeeklyGoal(s, todayIdx + 1);
-  for (let i = 0; i <= todayIdx; i++) {
-    logic.finishFitnessDay(s, week[i]);
   }
 
   const sum = logic.homeSummary(s, today);
@@ -757,18 +735,14 @@ test('首页摘要：晚餐未定时会提醒', () => {
   eq(after.some((x) => x.key === 'dinner'), false, '定了晚饭就不该再提醒');
 });
 
-test('首页摘要：健身未达标会提醒，达标后消失', () => {
+test('首页摘要：不再有健身相关的提醒项', () => {
   const s = fresh();
   const today = date.todayStr();
-  const todayIdx = date.weekdayNum(today) - 1;
-  const week = date.weekDates(today);
-
-  logic.setWeeklyGoal(s, todayIdx + 1); // 目标 = 本周已过的天数
-  for (let i = 0; i <= todayIdx; i++) logic.finishFitnessDay(s, week[i]);
-
   const sum = logic.homeSummary(s, today);
-  eq(sum.some((x) => x.key === 'fitness-week'), false, '已达标就不该再提醒');
-  eq(logic.fitnessWeekDoneCount(s, today), todayIdx + 1, '本周打卡天数应等于已过天数');
+  eq(sum.some((x) => x.key === 'fitness-week'), false, '健身模块已移除，不该再有相关提醒');
+  for (const item of sum) {
+    notEq(item.route, 'fitness', '摘要不该再指向已移除的健身模块');
+  }
 });
 
 test('首页摘要：灵感箱达到 3 条才提醒', () => {
