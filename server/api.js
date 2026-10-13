@@ -74,16 +74,12 @@ function statsOf(state) {
   return {
     任务: (state.tasks || []).length,
     备忘: (state.notes || []).length,
-    自媒体: (state.media || []).length,
     开发待办: (state.devTasks || []).length,
     灵感: (state.devIdeas || []).length,
-    咨询待办: (state.consultTasks || []).length,
-    咨询记录: (state.consultRecords || []).length,
+    学习条目: (state.studyItems || []).length,
     健身记录: Object.keys((state.fitness && state.fitness.records) || {}).length,
     菜谱: (state.diet && state.diet.recipes ? state.diet.recipes.length : 0),
     采买: (state.diet && state.diet.shopping ? state.diet.shopping.length : 0),
-    游戏: (state.games || []).length,
-    放松安排: (state.playPlan || []).length,
   };
 }
 

@@ -21,12 +21,10 @@
   --ok: #2e9e5b;
   --ok-weak: #e8f7ee;
 
-  --m-media: #7a5af8;
   --m-dev: #2f6fed;
-  --m-consult: #0f9b8e;
+  --m-study: #7a5af8;
   --m-fitness: #e2574c;
   --m-diet: #d98324;
-  --m-game: #c04cc0;
   --m-general: #6b7280;
 
   --radius: 10px;
@@ -470,12 +468,10 @@ a { color: var(--primary); text-decoration: none; }
   white-space: nowrap;
 }
 
-.tag.m-media   { background: #f1ecfe; color: var(--m-media); }
 .tag.m-dev     { background: #e9f0ff; color: var(--m-dev); }
-.tag.m-consult { background: #e3f6f4; color: var(--m-consult); }
+.tag.m-study   { background: #f1ecfe; color: var(--m-study); }
 .tag.m-fitness { background: #fdecea; color: var(--m-fitness); }
 .tag.m-diet    { background: #fdf1e1; color: var(--m-diet); }
-.tag.m-game    { background: #fbecfb; color: var(--m-game); }
 .tag.m-general { background: #eef1f6; color: var(--m-general); }
 
 .tag.clickable { cursor: pointer; }
@@ -689,7 +685,7 @@ a { color: var(--primary); text-decoration: none; }
 .cal-mark {
   width: 6px; height: 6px;
   border-radius: 50%;
-  background: var(--m-media);
+  background: var(--m-study);
 }
 
 .cal-count {
@@ -956,7 +952,7 @@ a { color: var(--primary); text-decoration: none; }
 
 .record-card {
   border: 1px solid var(--line);
-  border-left: 3px solid var(--m-consult);
+  border-left: 3px solid var(--m-dev);
   border-radius: var(--radius-sm);
   padding: 10px 12px;
   margin-bottom: 9px;

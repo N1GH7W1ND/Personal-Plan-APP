@@ -14,23 +14,19 @@ import * as jump from './jump.js';
 
 import homeView from './views/home.js';
 import todayView from './views/today.js';
-import mediaView from './views/media.js';
 import devView from './views/dev.js';
-import consultView from './views/consult.js';
+import studyView from './views/study.js';
 import fitnessView from './views/fitness.js';
 import dietView from './views/diet.js';
-import gamesView from './views/games.js';
 import settingsView from './views/settings.js';
 
 const VIEWS = {
   home: homeView,
   today: todayView,
-  media: mediaView,
   dev: devView,
-  consult: consultView,
+  study: studyView,
   fitness: fitnessView,
   diet: dietView,
-  games: gamesView,
   settings: settingsView,
 };
 
@@ -79,10 +75,9 @@ const ctx = {
   },
   /** 从某条数据的来源标签跳过去并高亮 */
   jump(moduleId, taskId) {
-    const routeMap = { game: 'games' };
-    const route = routeMap[moduleId] || moduleId;
-    jump.triggerJump(route, taskId);
-    ctx.go(route, taskId);
+    // 模块 id 与路由 id 目前一一对应，不需要额外映射
+    jump.triggerJump(moduleId, taskId);
+    ctx.go(moduleId, taskId);
   },
 
   /* ---- 快速备忘 ---- */
@@ -175,13 +170,10 @@ function renderSidebar() {
     if (item.id === 'today') {
       const progress = logic.todayProgress(state, today);
       count = progress.total - progress.done;
-    } else if (item.id === 'home') {
+    } else if (item.id === 'home' || item.id === 'settings') {
       count = 0;
-    } else if (item.id === 'settings') {
-      count = 0;
-    } else if (item.id === 'games') {
-      count = pending.game || 0;
     } else {
+      // 其余入口的 id 与任务模块 id 一致
       count = pending[item.id] || 0;
     }
 

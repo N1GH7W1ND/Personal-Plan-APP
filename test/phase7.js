@@ -53,7 +53,7 @@ t.test('交付件齐全：启动脚本、说明、停止脚本、需求与计划
 });
 
 t.test('前端 9 个视图文件齐全', async () => {
-  for (const v of ['home', 'today', 'media', 'dev', 'consult', 'fitness', 'diet', 'games', 'settings']) {
+  for (const v of ['home', 'today', 'dev', 'study', 'fitness', 'diet', 'settings']) {
     t.ok(exists('web/views/' + v + '.js'), '缺少视图 web/views/' + v + '.js');
   }
 });
@@ -99,8 +99,8 @@ t.test('没有任何外网请求或外链资源', async () => {
 /* ---------------- 诚实性：不把没做的东西写成做了 ---------------- */
 
 t.test('代码里没有把未实现功能伪装成已实现（无 TODO 占位冒烟）', async () => {
-  const files = ['web/views/home.js', 'web/views/today.js', 'web/views/media.js', 'web/views/dev.js',
-    'web/views/consult.js', 'web/views/fitness.js', 'web/views/diet.js', 'web/views/games.js', 'web/views/settings.js'];
+  const files = ['web/views/home.js', 'web/views/today.js', 'web/views/dev.js', 'web/views/study.js',
+    'web/views/fitness.js', 'web/views/diet.js', 'web/views/settings.js'];
   for (const f of files) {
     const text = read(f);
     t.notIncludes(text, '正在开发中', f + ' 仍是占位实现');
@@ -111,7 +111,7 @@ t.test('代码里没有把未实现功能伪装成已实现（无 TODO 占位冒
 
 t.test('PRD 明确不做的事，代码里也没有偷偷做', async () => {
   // 第一版不做趋势统计与数据回填
-  const views = ['web/views/media.js', 'web/views/fitness.js', 'web/views/diet.js'];
+  const views = ['web/views/dev.js', 'web/views/study.js', 'web/views/fitness.js', 'web/views/diet.js'];
   for (const f of views) {
     const code = codeOnly(read(f));
     t.notIncludes(code, '播放量', f + ' 出现了播放量回填');
@@ -288,7 +288,7 @@ t.test('200 条任务时读写仍然正常（不卡死、不丢数据）', async
         s.tasks.push({
           id: 't_' + i,
           title: '压测任务 ' + i,
-          module: i % 2 ? 'dev' : 'media',
+          module: i % 2 ? 'dev' : 'study',
           date: '2026-10-' + String((i % 28) + 1).padStart(2, '0'),
           done: i % 3 === 0,
           priority: 'normal',

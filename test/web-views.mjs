@@ -126,7 +126,7 @@ test('首页内联快速补一条：选模块 + 回车 → 任务进入该模块
   const moduleSel = view().querySelector('[data-field="module"]');
   ok(input && moduleSel, '应能找到输入框与模块下拉');
 
-  moduleSel.value = 'media';
+  moduleSel.value = 'study';
   input.typeAndEnter('写公众号初稿');
   await waitRender();
   assertNoViewError();
@@ -134,7 +134,7 @@ test('首页内联快速补一条：选模块 + 回车 → 任务进入该模块
   const state = store.getState();
   eq(state.tasks.length, 1, '应新增一条任务');
   eq(state.tasks[0].title, '写公众号初稿');
-  eq(state.tasks[0].module, 'media', '应归到自媒体模块');
+  eq(state.tasks[0].module, 'study', '应归到学习模块');
   eq(state.tasks[0].date, date.todayStr(), '应排在今天');
 
   ok(input.value === '', '提交后输入框应清空，方便连续添加');
@@ -251,7 +251,7 @@ test('逾期任务可以一次性全部挪到今天（PRD B7）', async () => {
   const d2 = date.addDays(date.todayStr(), -2);
   store.dispatch((s) => {
     logic.addTask(s, { title: '欠账一', module: 'dev', date: d1 });
-    logic.addTask(s, { title: '欠账二', module: 'consult', date: d2 });
+    logic.addTask(s, { title: '欠账二', module: 'fitness', date: d2 });
   });
   await waitRender();
   assertNoViewError();

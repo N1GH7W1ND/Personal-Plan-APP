@@ -12,12 +12,11 @@ function dataCounts(state) {
   return [
     { num: state.tasks.length, label: '任务' },
     { num: state.notes.length, label: '备忘' },
-    { num: state.media.length, label: '自媒体' },
     { num: state.devTasks.length + state.devIdeas.length, label: '开发（含灵感）' },
-    { num: state.consultTasks.length + state.consultRecords.length, label: '咨询（含记录）' },
+    { num: state.studyItems.length, label: '学习条目' },
     { num: Object.keys(state.fitness.records).length, label: '健身记录' },
     { num: state.diet.recipes.length + state.diet.shopping.length, label: '菜谱与采买' },
-    { num: state.games.length + state.playPlan.length, label: '游戏与放松' },
+    { num: logic.studyMinutesTotal(state), label: '累计学习(分钟)' },
   ];
 }
 

@@ -1,6 +1,7 @@
 /**
  * 阶段 5 测试：七个功能模块
- * 端到端：真实服务 + 真实视图渲染 + 模拟点击，逐条验证 PRD 第 10.3 节的 C1–C15。
+ * 端到端：真实服务 + 真实视图渲染 + 模拟点击。
+ * 覆盖开发工作、学习、健身计划、饮食计划四个模块，以及"已移除模块"的收口检查。
  */
 
 import { test, after, setFile, eq, deepEq, ok, notOk } from './run-frontend.mjs';
@@ -94,140 +95,6 @@ function pick(action, key) {
 await app.init();
 
 /* ============================================================
-   自媒体（C1–C3、E4）
-   ============================================================ */
-
-test('自媒体：新增选题落在选题池（C1 起点）', async () => {
-  await reset();
-  await go('media');
-
-  const btn = findByAct(view(), 'media-new')[0];
-  ok(btn, '应有「新选题」按钮');
-  btn.click();
-  await waitRender();
-
-  const input = modal().querySelector('[data-field="value"]');
-  ok(input, '应弹出输入框');
-  input.value = '3 个提升效率的本地工具';
-  findByAct(modal(), 'yes')[0].click();
-  await sleep(20);
-  await waitRender();
-
-  const media = store.getState().media;
-  eq(media.length, 1, '应新增一条内容');
-  eq(media[0].status, 'idea', '应落在选题池');
-  eq(media[0].title, '3 个提升效率的本地工具');
-});
-
-test('自媒体：箭头逐列推进，一次点击只进一档（C1）', async () => {
-  // 从确定的起点开始（本文件各用例共用一个进程）
-  const first = store.getState().media[0];
-  store.dispatch((s) => logic.updateMedia(s, first.id, { status: 'idea' }));
-  await go('media');
-
-  const item = store.getState().media[0];
-  eq(item.status, 'idea', '起点应是选题池');
-  const arrow = (dir) => findByAct(view(), 'media-move')
-    .find((el) => el.getAttribute('data-id') === item.id && Number(el.getAttribute('data-dir')) === dir) || null;
-
-  // 第一列：后退箭头存在但被禁用
-  const prev = arrow(-1);
-  ok(prev, '应渲染后退按钮');
-  eq(prev.getAttribute('disabled') !== null, true, '第一列的后退按钮应禁用');
-
-  // 逐列推进，每点一次必须只前进一档
-  for (const expect of ['writing', 'ready', 'published']) {
-    const next = arrow(1);
-    ok(next, '应有前进按钮（目标 ' + expect + '）');
-    eq(next.getAttribute('disabled'), null, '前进按钮应可用');
-
-    const changesBefore = store.getStatus().changeCount;
-    next.click();
-    const changes = store.getStatus().changeCount - changesBefore;
-    const after = logic.findMedia(store.getState(), item.id).status;
-
-    eq(changes, 1, '一次点击应只发生一次改动（实际 ' + changes + '）');
-    eq(after, expect, '一次点击应只前进一档（实际 ' + after + '）');
-    await waitRender();
-  }
-
-  // 最后一列：前进箭头存在但被禁用
-  const lastNext = arrow(1);
-  ok(lastNext, '最后一列应仍渲染前进按钮');
-  eq(lastNext.getAttribute('disabled') !== null, true, '最后一列的前进按钮应禁用');
-
-  const cols = view().querySelectorAll('.board-col');
-  eq(cols.length, 4, '应有四列');
-  ok(cols[3].textContent.includes(item.title), '应出现在最后一列（已发布）');
-});
-
-test('自媒体：看板不支持拖拽（C2）', async () => {
-  await go('media');
-  const html = view().innerHTML;
-  notOk(/draggable/i.test(html), '看板不应有 draggable 属性');
-  notOk(/dragstart|dragover|ondrop/i.test(html), '看板不应绑定拖拽事件');
-  const source = readFileSync(join(ROOT, 'web', 'views', 'media.js'), 'utf8');
-  notOk(/draggable|dragstart|dragover|dragend/.test(source), '自媒体视图源码里不应出现拖拽实现');
-});
-
-test('自媒体：排期日历按发布日期打点，点某天看当天要发什么（C3）', async () => {
-  await go('media');
-  const item = store.getState().media[0];
-  const today = date.todayStr();
-
-  const menuBtn = findByActAndId(view(), 'media-menu', item.id);
-  ok(menuBtn, '应能找到更多操作');
-  menuBtn.click();
-  await waitRender();
-  pick('menu-pick', 'schedule').click();
-  await waitRender();
-
-  const dateInput = modal().querySelector('[data-field="date"]');
-  ok(dateInput, '应弹出日期选择');
-  dateInput.value = today;
-  findByAct(modal(), 'save')[0].click();
-  await sleep(20);
-  await waitRender();
-
-  eq(logic.findMedia(store.getState(), item.id).plannedDate, today, '应记录计划发布日期');
-
-  const cell = findByAct(view(), 'cal-pick').find((el) => el.getAttribute('data-date') === today);
-  ok(cell, '日历上应能找到今天');
-  eq(cell.querySelectorAll('.cal-mark').length, 1, '今天应有一个发布标记');
-  eq(cell.querySelector('.cal-count').textContent, '1', '应显示当天条数');
-
-  cell.click();
-  await waitRender();
-  ok(view().innerHTML.includes('要发的内容'), '应展开当天详情');
-  ok(view().innerHTML.includes(item.title), '应列出这条内容');
-});
-
-test('自媒体：待发布内容会出现在首页摘要（E4）', async () => {
-  await go('media');
-  const item = store.getState().media[0];
-  store.dispatch((s) => logic.updateMedia(s, item.id, { status: 'ready' }));
-  await waitRender();
-
-  await go('home');
-  const html = view().innerHTML;
-  ok(html.includes('待你处理'), '首页应出现待你处理区块');
-  ok(html.includes('待发布'), '应提示有内容待发布');
-});
-
-test('自媒体：推送到今日会生成一条归属自媒体的今日任务', async () => {
-  await go('media');
-  const item = store.getState().media[0];
-  const push = findByActAndId(view(), 'media-push', item.id);
-  ok(push, '应有推送到今日按钮');
-  push.click();
-  await waitRender();
-
-  const created = logic.tasksOn(store.getState(), date.todayStr()).find((t) => t.module === 'media');
-  ok(created, '应生成自媒体任务');
-  ok(created.title.includes(item.title), '任务内容应带上内容标题');
-});
-
-/* ============================================================
    开发工作（C4、C5）
    ============================================================ */
 
@@ -312,93 +179,6 @@ test('开发：推送到今日生成开发任务', async () => {
   const created = logic.tasksOn(store.getState(), date.todayStr()).find((t) => t.module === 'dev');
   ok(created, '应生成开发任务');
   eq(created.title, item.title, '任务标题应与待办一致');
-});
-
-/* ============================================================
-   咨询工作（C6、C7）
-   ============================================================ */
-
-test('咨询：新增沟通记录（含待办与回访日）', async () => {
-  await reset();
-  await go('consult');
-
-  const addBtn = findByAct(view(), 'rec-new')[0];
-  ok(addBtn, '应有加记录按钮');
-  addBtn.click();
-  await waitRender();
-
-  const today = date.todayStr();
-  modal().querySelector('[data-field="who"]').value = '王总';
-  modal().querySelector('[data-field="summary"]').value = '预算压到 8 万，要分两期';
-  modal().querySelector('[data-field="todo"]').value = '出分期报价单';
-  modal().querySelector('[data-field="nextDate"]').value = today;
-  findByAct(modal(), 'save')[0].click();
-  await sleep(20);
-  await waitRender();
-
-  const recs = store.getState().consultRecords;
-  eq(recs.length, 1, '应新增一条记录');
-  eq(recs[0].who, '王总');
-  eq(recs[0].todo, '出分期报价单');
-  eq(recs[0].nextDate, today);
-});
-
-test('咨询：记录里的待办点「提取为任务」生成咨询待办（C6）', async () => {
-  await go('consult');
-  const rec = store.getState().consultRecords[0];
-  const before = store.getState().consultTasks.length;
-
-  const btn = findByActAndId(view(), 'rec-extract', rec.id);
-  ok(btn, '应有提取为任务按钮');
-  btn.click();
-  await waitRender();
-
-  const state = store.getState();
-  eq(state.consultTasks.length, before + 1, '应生成咨询待办');
-  eq(state.consultTasks[state.consultTasks.length - 1].title, '出分期报价单', '内容应来自记录');
-  eq(logic.findConsultRecord(state, rec.id).todo, '', '记录里的待办应被清空，避免重复提取');
-});
-
-test('咨询：回访日点「加进计划」排进那天的今日计划（C7）', async () => {
-  const today = date.todayStr();
-  await go('consult');
-  const rec = store.getState().consultRecords[0];
-
-  const btn = findByActAndId(view(), 'rec-plan', rec.id);
-  ok(btn, '应有加进计划按钮');
-  btn.click();
-  await waitRender();
-
-  const planned = logic.tasksOn(store.getState(), today)
-    .find((t) => t.module === 'consult' && t.title.includes('回访'));
-  ok(planned, '应生成一条回访任务');
-  ok(planned.title.includes('王总'), '任务应带上沟通对象');
-
-  await go('home');
-  ok(view().innerHTML.includes('回访'), '回访任务应出现在首页今日计划');
-});
-
-test('咨询：待办可勾选完成，并可推送到今日', async () => {
-  await go('consult');
-  const item = store.getState().consultTasks[0];
-  ok(item, '应有咨询待办');
-
-  const box = findByActAndId(view(), 'consult-toggle', item.id);
-  ok(box, '应能找到勾选框');
-  box.click();
-  await waitRender();
-  eq(logic.findConsultTask(store.getState(), item.id).done, true, '应标记完成');
-
-  box.click();
-  await waitRender();
-  eq(logic.findConsultTask(store.getState(), item.id).done, false, '可取消完成');
-
-  const push = findByActAndId(view(), 'consult-push', item.id);
-  ok(push, '应有推送到今日');
-  push.click();
-  await waitRender();
-  ok(logic.tasksOn(store.getState(), date.todayStr())
-    .some((t) => t.module === 'consult' && t.title === item.title), '应生成咨询任务');
 });
 
 /* ============================================================
@@ -677,84 +457,140 @@ test('饮食：采买清单可勾选，清空已买只删已勾选项（C13）',
 });
 
 /* ============================================================
-   游戏娱乐（C14、C15）
+   学习
    ============================================================ */
 
-test('游戏：新增游戏落在想玩', async () => {
+test('学习：页面能打开，空状态有引导文案，概况从 0 开始', async () => {
   await reset();
-  await go('games');
+  await go('study');
 
-  findByAct(view(), 'game-new')[0].click();
+  const html = view().innerHTML;
+  ok(html.includes('学习'), '应显示学习页标题');
+  ok(html.includes('还没有学习内容'), '空清单应有引导文案');
+  ok(html.includes('累计 0 分钟'), '累计时长应从 0 开始');
+  ok(view().querySelector('[data-field="study-input"]'), '应有快速输入框');
+});
+
+test('学习：输入框回车即存，默认未开始、类型为阅读', async () => {
+  await go('study');
+  const input = view().querySelector('[data-field="study-input"]');
+  ok(input, '应有输入框');
+  input.typeAndEnter('看完 JavaScript 事件循环');
   await waitRender();
-  modal().querySelector('[data-field="name"]').value = '塞尔达';
-  modal().querySelector('[data-field="platform"]').value = 'Switch';
+
+  const items = store.getState().studyItems;
+  eq(items.length, 1, '应新增一条学习内容');
+  eq(items[0].title, '看完 JavaScript 事件循环');
+  eq(items[0].status, 'todo', '默认未开始');
+  eq(items[0].kind, 'read', '默认阅读');
+  eq(input.value, '', '提交后输入框应清空');
+});
+
+test('学习：点详情标签保存类型与进度', async () => {
+  await go('study');
+  const item = store.getState().studyItems[0];
+
+  const openBtn = findByActAndId(view(), 'study-edit', item.id);
+  ok(openBtn, '应能点开详情');
+  openBtn.click();
+  await waitRender();
+
+  modal().querySelector('[data-field="kind"]').value = 'course';
+  modal().querySelector('[data-field="minutes"]').value = '45';
+  modal().querySelector('[data-field="source"]').value = '某课程';
   findByAct(modal(), 'save')[0].click();
   await sleep(20);
   await waitRender();
 
-  const games = store.getState().games;
-  eq(games.length, 1, '应新增游戏');
-  eq(games[0].status, 'wish', '默认落在想玩');
-  eq(games[0].platform, 'Switch');
+  const saved = logic.findStudyItem(store.getState(), item.id);
+  eq(saved.kind, 'course', '类型应保存');
+  eq(saved.minutes, 45, '时长应保存');
+  eq(saved.source, '某课程', '出处应保存');
+  ok(!modal().querySelector('[data-field="kind"]'), '保存后弹窗应关闭');
 });
 
-test('游戏：开始玩 → 通关 在三列之间移动（C14）', async () => {
-  await go('games');
-  const game = store.getState().games[0];
+test('学习：点状态标签在三档之间循环', async () => {
+  await go('study');
+  const item = store.getState().studyItems[0];
+  eq(item.status, 'todo', '起点应是未开始');
 
-  const start = findByActAndId(view(), 'game-start', game.id);
-  ok(start, '应有开始玩按钮');
-  start.click();
-  await waitRender();
-  eq(logic.findGame(store.getState(), game.id).status, 'playing', '应进入在玩');
-
-  const clear = findByActAndId(view(), 'game-clear', game.id);
-  ok(clear, '应有通关按钮');
-  clear.click();
-  await waitRender();
-  eq(logic.findGame(store.getState(), game.id).status, 'cleared', '应进入已通关');
-
-  const cols = view().querySelectorAll('.board-col');
-  ok(cols.length >= 3, '应有三列');
-  ok(cols[cols.length - 1].textContent.includes(game.name), '已通关列里应有它');
-
-  const again = findByActAndId(view(), 'game-start', game.id);
-  ok(again, '已通关后应能重新在玩');
-  again.click();
-  await waitRender();
-  eq(logic.findGame(store.getState(), game.id).status, 'playing', '应回到在玩');
+  for (const next of ['doing', 'done', 'todo']) {
+    const chip = findByActAndId(view(), 'study-status', item.id);
+    ok(chip, '应能找到状态标签（目标是 ' + next + '）');
+    chip.click();
+    await waitRender();
+    eq(logic.findStudyItem(store.getState(), item.id).status, next, '应切到 ' + next);
+  }
 });
 
-test('游戏：安排今天放松生成今日任务（C15）', async () => {
-  await go('games');
-  const today = date.todayStr();
-  const plansBefore = store.getState().playPlan.length;
+test('学习：推送到今日会生成归属学习的今日任务', async () => {
+  await go('study');
+  const item = store.getState().studyItems[0];
 
-  findByAct(view(), 'plan-new')[0].click();
+  // 先加 45 分钟，验证概况联动
+  store.dispatch((s) => logic.updateStudyItem(s, item.id, { minutes: 45, status: 'done' }));
   await waitRender();
-  const durInput = modal().querySelector('[data-field="duration"]');
-  ok(durInput, '应有"大概多久"输入框');
-  durInput.value = '2 小时';
-  findByAct(modal(), 'save')[0].click();
-  await sleep(20);
-  await waitRender();
+  ok(view().innerHTML.includes('累计 45 分钟'), '概况应显示累计 45 分钟');
+  ok(view().innerHTML.includes('已学完 1'), '概况应显示已学完 1 条');
 
-  eq(store.getState().playPlan.length, plansBefore + 1, '应新增一个放松时段');
-  eq(store.getState().playPlan[store.getState().playPlan.length - 1].duration, '2 小时');
-  eq(store.getState().playPlan[store.getState().playPlan.length - 1].weekday, date.weekdayNum(today),
-    '默认应排在今天这个星期几');
-
-  const btn = findByAct(view(), 'plan-today')[0];
-  ok(btn, '应有安排今天放松按钮');
-  btn.click();
+  const push = findByActAndId(view(), 'study-push', item.id);
+  ok(push, '应有推送到今日按钮');
+  push.click();
   await waitRender();
 
-  const created = logic.tasksOn(store.getState(), today).find((t) => t.module === 'game');
-  ok(created, '应生成娱乐任务');
-  ok(created.title.includes('2 小时'), '任务内容应带上时长：' + created.title);
+  const created = logic.tasksOn(store.getState(), date.todayStr()).find((t) => t.module === 'study');
+  ok(created, '应生成学习任务');
+  eq(created.title, item.title, '任务标题应与内容一致');
 
   await go('home');
-  ok(view().innerHTML.includes(created.title), '应出现在首页今日计划');
+  ok(view().innerHTML.includes(item.title), '学习任务应出现在首页今日计划');
+});
+
+test('学习：删除后 5 秒内可撤销', async () => {
+  await go('study');
+  const item = store.getState().studyItems[0];
+  const before = store.getState().studyItems.length;
+
+  findByActAndId(view(), 'study-menu', item.id).click();
+  await waitRender();
+  const delItem = findByAct(modal(), 'menu-pick').find((el) => el.getAttribute('data-key') === 'delete');
+  ok(delItem, '菜单里应有删除项');
+  delItem.click();
+  await waitRender();
+
+  eq(store.getState().studyItems.length, before - 1, '应删除一条');
+  eq(store.getStatus().canUndo, true, '应可撤销');
+
+  const undoBtn = dom.document.getElementById('toastLayer').querySelector('.toast-action');
+  ok(undoBtn, '应出现撤销按钮');
+  undoBtn.click();
+  await waitRender();
+
+  eq(store.getState().studyItems.length, before, '撤销后应恢复');
+  ok(store.getState().studyItems.some((s) => s.id === item.id), '恢复的应是同一条');
+});
+
+test('学习：统计条数纳入设置页，且累计时长正确', async () => {
+  await go('settings');
+  const state = store.getState();
+  const html = view().innerHTML;
+  ok(html.includes('学习条目'), '设置页应显示学习条目统计');
+  ok(html.includes(String(state.studyItems.length)), '应显示学习条目数');
+  ok(html.includes('累计学习(分钟)'), '应显示累计学习时长');
+});
+
+test('已移除的模块：导航里进不去，旧路由会回落首页', async () => {
+  for (const gone of ['media', 'consult', 'games']) {
+    eq(router.ROUTES.includes(gone), false, '路由表里不应再有 ' + gone);
+    eq(dom.document.querySelector('.nav-item[data-route="' + gone + '"]'), null,
+      '侧栏不应再有 ' + gone + ' 入口');
+    // 手输旧地址时应安全回落到首页，而不是白屏
+    eq(router.routeFromHash('#/' + gone), 'home', '旧路由 ' + gone + ' 应回落到首页');
+  }
+
+  await go('media');
+  ok(view().innerHTML.length > 0, '打开旧路由不应白屏');
+  ok(view().innerHTML.includes('今日计划'), '应渲染首页内容');
 });
 
 /* ============================================================

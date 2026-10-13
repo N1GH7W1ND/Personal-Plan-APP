@@ -27,7 +27,7 @@ t.test('空状态模板字段齐全', async () => {
   const s = h.store.emptyState();
   t.eq(s.schemaVersion, 1, 'schemaVersion');
   t.eq(s.revision, 0, 'revision 初值');
-  for (const f of ['tasks', 'notes', 'media', 'devTasks', 'devIdeas', 'consultTasks', 'consultRecords', 'games', 'playPlan']) {
+  for (const f of ['tasks', 'notes', 'devTasks', 'devIdeas', 'studyItems']) {
     t.ok(Array.isArray(s[f]), f + ' 应为数组');
   }
   t.deepEq(s.fitness.records, {}, 'fitness.records 结构');
@@ -102,12 +102,12 @@ t.test('首次读取会把空数据真正写到磁盘（格式化、以换行结
 t.test('中文以可读形式存放，而不是被转义', async () => {
   await resetDir('utf8');
   const r = await h.saveState(server.port, Object.assign(h.store.emptyState(), {
-    tasks: [{ id: 't_1', title: '写公众号初稿', module: 'media', date: '2026-10-08', done: false }],
+    tasks: [{ id: 't_1', title: '写周报', module: 'dev', date: '2026-10-08', done: false }],
   }), 0);
   t.eq(r.status, 200, '保存状态码');
 
   const text = fs.readFileSync(h.dataFile(dataDir), 'utf8');
-  t.includes(text, '写公众号初稿', '中文应可读');
+  t.includes(text, '写周报', '中文应可读');
   t.notIncludes(text, '\\u5199', '不应出现 unicode 转义');
 });
 
@@ -575,13 +575,13 @@ t.test('GET /api/health 会统计各类数据条数', async () => {
   await resetDir('api-health');
   await h.mutate(server.port, (s) => {
     s.tasks.push({ id: 't1', title: '任务一', module: 'dev', date: '2026-10-08', done: false });
-    s.tasks.push({ id: 't2', title: '任务二', module: 'media', date: '2026-10-08', done: true });
+    s.tasks.push({ id: 't2', title: '任务二', module: 'study', date: '2026-10-08', done: true });
     s.notes.push({ id: 'n1', text: '备忘', done: false });
-    s.media.push({ id: 'm1', title: '选题', platform: '公众号', status: 'idea' });
+    s.devTasks.push({ id: 'd1', title: '修 bug', status: 'doing' });
     s.devIdeas.push({ id: 'i1', text: '灵感', handled: false });
+    s.studyItems.push({ id: 's1', title: '看完事件循环', kind: 'read', status: 'doing', minutes: 30 });
     s.diet.recipes.push({ id: 'rc1', name: '番茄牛腩', note: '' });
-    s.diet.shopping.push({ id: 's1', name: '牛腩', bought: false });
-    s.games.push({ id: 'g1', name: '塞尔达', platform: 'Switch', status: 'playing' });
+    s.diet.shopping.push({ id: 'sp1', name: '牛腩', bought: false });
     s.fitness.records['2026-10-08'] = { label: '胸+三头', exercises: {}, finished: true };
   });
 
@@ -589,12 +589,56 @@ t.test('GET /api/health 会统计各类数据条数', async () => {
   t.eq(r.status, 200, '状态码');
   t.eq(r.json.stats['任务'], 2, '任务数');
   t.eq(r.json.stats['备忘'], 1, '备忘数');
-  t.eq(r.json.stats['自媒体'], 1, '自媒体数');
+  t.eq(r.json.stats['开发待办'], 1, '开发待办数');
   t.eq(r.json.stats['灵感'], 1, '灵感数');
+  t.eq(r.json.stats['学习条目'], 1, '学习条目数');
   t.eq(r.json.stats['菜谱'], 1, '菜谱数');
   t.eq(r.json.stats['采买'], 1, '采买数');
-  t.eq(r.json.stats['游戏'], 1, '游戏数');
   t.eq(r.json.stats['健身记录'], 1, '健身记录数');
+
+  // 已移除模块的统计项不应再出现
+  for (const gone of ['自媒体', '咨询待办', '咨询记录', '游戏', '放松安排']) {
+    t.eq(r.json.stats[gone], undefined, '不应再有「' + gone + '」统计项');
+  }
+});
+
+// ---------------- 已移除模块的数据清理 ----------------
+
+t.test('旧数据里被移除模块的内容会被清掉，且给出清理报告', async () => {
+  await resetDir('purge');
+  const legacy = Object.assign(h.store.emptyState(), {
+    media: [{ id: 'm1', title: '抖音发布我的视频' }],
+    consultTasks: [{ id: 'c1', title: '咨询导员' }],
+    consultRecords: [{ id: 'r1', who: '导员' }],
+    games: [{ id: 'g1', name: '塞尔达' }],
+    playPlan: [{ id: 'p1', weekday: 3 }],
+    tasks: [
+      { id: 't1', title: '送学生证', module: 'general', date: '2026-10-13' },
+      { id: 't2', title: '自媒体任务', module: 'media', date: '2026-10-13' },
+      { id: 't3', title: '咨询任务', module: 'consult', date: '2026-10-13' },
+      { id: 't4', title: '游戏任务', module: 'game', date: '2026-10-13' },
+    ],
+  });
+
+  const cleaned = h.store.normalize(legacy);
+
+  t.eq(cleaned.media, undefined, 'media 字段应被清掉');
+  t.eq(cleaned.consultTasks, undefined, 'consultTasks 字段应被清掉');
+  t.eq(cleaned.consultRecords, undefined, 'consultRecords 字段应被清掉');
+  t.eq(cleaned.games, undefined, 'games 字段应被清掉');
+  t.eq(cleaned.playPlan, undefined, 'playPlan 字段应被清掉');
+
+  t.eq(cleaned.tasks.length, 1, '只应留下不属已移除模块的任务');
+  t.eq(cleaned.tasks[0].title, '送学生证', '留下的应是通用任务');
+  t.eq(cleaned.studyItems.length, 0, '应补出 studyItems 字段');
+
+  // 写入磁盘后再读回，确认清理真的落盘
+  await h.store.write(cleaned, undefined);
+  const back = await h.store.read();
+  t.eq(back.state.tasks.length, 1, '磁盘上也应只剩 1 条任务');
+  const raw = JSON.parse(fs.readFileSync(h.dataFile(dataDir), 'utf8'));
+  t.eq('media' in raw, false, '磁盘文件里不应再有 media 字段');
+  t.eq('games' in raw, false, '磁盘文件里不应再有 games 字段');
 });
 
 // ---------------- 组卷：先起服务，再跑全部用例 ----------------

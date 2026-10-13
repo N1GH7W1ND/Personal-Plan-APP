@@ -64,7 +64,7 @@ test('load 能从本机服务读到数据', async () => {
 });
 
 test('dispatch 后会自动保存到磁盘文件', async () => {
-  store.dispatch((s) => logic.addTask(s, { title: '写公众号初稿', module: 'media' }), { label: '新增任务' });
+  store.dispatch((s) => logic.addTask(s, { title: '写周报', module: 'dev' }), { label: '新增任务' });
   eq(store.getStatus().saveStatus, 'unsaved', '刚改完应是待保存');
 
   await store.flushNow();
@@ -73,8 +73,8 @@ test('dispatch 后会自动保存到磁盘文件', async () => {
 
   const disk = readDisk();
   eq(disk.tasks.length, 1, '文件里应有这条任务');
-  eq(disk.tasks[0].title, '写公众号初稿', '标题应落盘');
-  eq(disk.tasks[0].module, 'media');
+  eq(disk.tasks[0].title, '写周报', '标题应落盘');
+  eq(disk.tasks[0].module, 'dev');
   ok(disk.revision >= 1, '文件里的版本号应递增');
 });
 
@@ -95,7 +95,7 @@ test('新页面加载后能读到之前保存的数据（刷新不丢）', async
   await store.load(); // 模拟刷新页面
   eq(store.getState().tasks.length, before, '重新加载后任务数应一致');
   const titles = store.getState().tasks.map((t) => t.title);
-  ok(titles.includes('写公众号初稿'), '之前保存的内容还在');
+  ok(titles.includes('写周报'), '之前保存的内容还在');
 });
 
 test('删除 + 撤销：能恢复到删除前', async () => {

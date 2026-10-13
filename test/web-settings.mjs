@@ -79,12 +79,11 @@ async function seed() {
   store.dispatch((s) => {
     logic.addTask(s, { title: '写周报', module: 'general' });
     logic.addNote(s, '买猫粮');
-    logic.addMedia(s, { title: '一条选题' });
     logic.addDevTask(s, { title: '修 bug' });
     logic.addDevIdea(s, '用缓存');
-    logic.addConsultTask(s, '回复报价');
+    logic.addStudyItem(s, { title: '看完事件循环', minutes: 30 });
     logic.addRecipe(s, '番茄牛腩');
-    logic.addGame(s, '塞尔达');
+    logic.addShoppingItem(s, '牛腩');
   });
   await store.flushNow();
   await waitRender();
@@ -135,7 +134,8 @@ test('设置页显示的条数与实际数据一致', async () => {
   const textOf = (i) => stats[i].textContent;
   eq(textOf(0), String(state.tasks.length) + '任务', '任务数应一致');
   eq(textOf(1), String(state.notes.length) + '备忘', '备忘数应一致');
-  eq(textOf(2), String(state.media.length) + '自媒体', '自媒体数应一致');
+  eq(textOf(2), String(state.devTasks.length + state.devIdeas.length) + '开发（含灵感）', '开发数应一致');
+  eq(textOf(3), String(state.studyItems.length) + '学习条目', '学习条目数应一致');
 });
 
 /* ============================================================
@@ -156,8 +156,12 @@ test('导出备份能拿到包含全部数据的文件（F1）', async () => {
   const parsed = JSON.parse(text);
   eq(parsed.tasks.length, before.tasks.length, '任务条数应一致');
   eq(parsed.notes.length, before.notes.length, '备忘条数应一致');
-  eq(parsed.media.length, before.media.length, '自媒体条数应一致');
+  eq(parsed.studyItems.length, before.studyItems.length, '学习条目数应一致');
   ok(Array.isArray(parsed.fitness.routine) && parsed.fitness.routine.length === 7, '应含完整健身周安排');
+  // 已移除模块的内容不应出现在导出文件里
+  for (const gone of ['media', 'consultTasks', 'consultRecords', 'games', 'playPlan']) {
+    eq(gone in parsed, false, '导出文件不应含已移除模块字段 ' + gone);
+  }
 
   // 导出的文件本身应当能被当作备份导入回去
   ok(storeModule.looksLikeState(parsed), '导出的内容应被识别为本应用备份');
@@ -238,10 +242,9 @@ test('界面上选文件恢复：先弹确认，确认后才覆盖', async () =>
       schemaVersion: 1,
       tasks: [{ id: 't_ui', title: '来自界面恢复', module: 'dev', date: date.todayStr(), done: false }],
       notes: [],
-      media: [], devTasks: [], devIdeas: [], consultTasks: [], consultRecords: [],
+      devTasks: [], devIdeas: [], studyItems: [],
       fitness: { routine: [], records: {} },
       diet: { meals: {}, recipes: [], shopping: [] },
-      games: [], playPlan: [],
       settings: { fitnessWeeklyGoal: 5, density: 'comfortable' },
     }),
   };
@@ -300,7 +303,8 @@ test('清空必须输入确认文字，输错不接受（F5）', async () => {
 
   eq(store.getState().tasks.length, 0, '输对应清空任务');
   eq(store.getState().notes.length, 0, '备忘也应清空');
-  eq(store.getState().media.length, 0, '自媒体也应清空');
+  eq(store.getState().studyItems.length, 0, '学习条目也应清空');
+  eq(store.getState().devTasks.length, 0, '开发待办也应清空');
   eq(readDisk().tasks.length, 0, '磁盘上也应清空');
 });
 

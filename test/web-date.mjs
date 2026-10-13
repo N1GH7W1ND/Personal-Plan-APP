@@ -62,13 +62,18 @@ test('date.js 内部不使用 UTC 截取的方式取日期', () => {
 
 test('前端各模块源码里没有用 toISOString().slice(0,10) 取日期', () => {
   const files = ['app.js', 'store.js', 'logic.js', 'router.js', 'ui.js', 'api.js',
-    'views/home.js', 'views/today.js', 'views/media.js', 'views/dev.js', 'views/consult.js',
-    'views/fitness.js', 'views/diet.js', 'views/games.js', 'views/settings.js'];
+    'views/home.js', 'views/today.js', 'views/dev.js', 'views/study.js',
+    'views/fitness.js', 'views/diet.js', 'views/settings.js'];
   for (const f of files) {
     const abs = join(ROOT, 'web', f);
-    if (!existsSync(abs)) continue;
+    // 这些文件都是必须存在的：缺文件应当直接报出来，而不是被静默跳过
+    ok(existsSync(abs), '缺少前端文件 web/' + f);
     const code = codeOnly(readFileSync(abs, 'utf8'));
     eq(/toISOString\s*\(\s*\)\s*\.\s*slice/.test(code), false, f + ' 里用 toISOString().slice 取日期了');
+  }
+  // 已移除的模块视图不应还在磁盘上
+  for (const gone of ['views/media.js', 'views/consult.js', 'views/games.js']) {
+    eq(existsSync(join(ROOT, 'web', gone)), false, '已移除的视图不该还存在：web/' + gone);
   }
 });
 

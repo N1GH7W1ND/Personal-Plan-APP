@@ -1,7 +1,7 @@
 /**
  * 前端测试：纯逻辑层（web/logic.js）
- * 阶段 3 关注骨架相关部分：常量、数据结构、任务增删改查、派生统计、撤销栈。
- * 各模块专属规则（自媒体/健身/饮食…）在阶段 5 的测试里覆盖。
+ * 覆盖：常量与数据结构、任务增删改查、派生统计、备忘、学习、撤销栈、首页摘要、
+ * 以及"已移除模块"的数据清理。各模块的界面交互在 web-modules.mjs 里覆盖。
  */
 
 import { test, setFile, eq, notEq, deepEq, ok, notOk, throws } from './run-frontend.mjs';
@@ -18,17 +18,29 @@ function fresh() {
 
 test('模块清单完整且含"通用"兜底', () => {
   const ids = logic.MODULE_IDS;
-  for (const id of ['media', 'dev', 'consult', 'fitness', 'diet', 'game', 'general']) {
+  for (const id of ['dev', 'study', 'fitness', 'diet', 'general']) {
     ok(ids.includes(id), '缺少模块 ' + id);
   }
-  eq(logic.moduleName('media'), '自媒体');
-  eq(logic.moduleName('game'), '游戏');
+  eq(logic.moduleName('dev'), '开发');
+  eq(logic.moduleName('study'), '学习');
   eq(logic.moduleName('unknown-module'), '通用', '未知模块应回落到通用');
 });
 
-test('导航是 9 个入口且顺序固定', () => {
+test('已移除的模块不再出现在模块清单与导航里', () => {
+  for (const gone of ['media', 'consult', 'game']) {
+    eq(logic.MODULE_IDS.includes(gone), false, '模块清单里不应再有 ' + gone);
+    eq(logic.NAV_ITEMS.some((n) => n.id === gone || n.id === gone + 's'), false,
+      '导航里不应再有 ' + gone);
+  }
+  // 旧数据里的这些 module 值应被判为未知，落回"通用"
+  eq(logic.moduleName('media'), '通用', '旧数据里的 media 应回落到通用');
+  eq(logic.moduleName('consult'), '通用', '旧数据里的 consult 应回落到通用');
+  eq(logic.moduleName('game'), '通用', '旧数据里的 game 应回落到通用');
+});
+
+test('导航是 7 个入口且顺序固定', () => {
   deepEq(logic.NAV_ITEMS.map((n) => n.id), [
-    'home', 'today', 'media', 'dev', 'consult', 'fitness', 'diet', 'games', 'settings',
+    'home', 'today', 'dev', 'study', 'fitness', 'diet', 'settings',
   ]);
   for (const item of logic.NAV_ITEMS) {
     ok(item.name && item.icon, item.id + ' 应有名称与图标');
@@ -38,14 +50,49 @@ test('导航是 9 个入口且顺序固定', () => {
 test('初始状态字段齐全，健身周安排有 7 天', () => {
   const s = fresh();
   eq(s.schemaVersion, 1);
-  for (const f of ['tasks', 'notes', 'media', 'devTasks', 'devIdeas', 'consultTasks', 'consultRecords', 'games', 'playPlan']) {
+  for (const f of ['tasks', 'notes', 'devTasks', 'devIdeas', 'studyItems']) {
     ok(Array.isArray(s[f]), f + ' 应为数组');
+  }
+  // 已移除模块的字段不应出现在初始状态里
+  for (const gone of ['media', 'consultTasks', 'consultRecords', 'games', 'playPlan']) {
+    eq(gone in s, false, '初始状态不应再有 ' + gone + ' 字段');
   }
   eq(s.fitness.routine.length, 7, '周安排应有 7 天');
   ok(s.fitness.routine.some((d) => d.rest), '应至少有一天休息');
   ok(s.fitness.routine.some((d) => !d.rest && d.exercises.length > 0), '应有训练日且含动作');
   eq(s.settings.fitnessWeeklyGoal, 5);
   eq(s.settings.density, 'comfortable');
+});
+
+test('purgeRemovedModules 会清掉旧数据并报告清了多少', () => {
+  const legacy = {
+    media: [{ id: 'm1' }, { id: 'm2' }],
+    consultTasks: [{ id: 'c1' }],
+    consultRecords: [{ id: 'r1' }],
+    games: [{ id: 'g1' }],
+    playPlan: [{ id: 'p1' }],
+    tasks: [
+      { id: 't1', module: 'general' },
+      { id: 't2', module: 'media' },
+      { id: 't3', module: 'consult' },
+      { id: 't4', module: 'game' },
+    ],
+  };
+  const report = logic.purgeRemovedModules(legacy);
+
+  eq(legacy.media, undefined, 'media 应被删除');
+  eq(legacy.games, undefined, 'games 应被删除');
+  eq(legacy.tasks.length, 1, '只应留下通用任务');
+  eq(legacy.tasks[0].id, 't1');
+
+  const byId = {};
+  for (const r of report) byId[r.id] = r;
+  eq(byId.media.count, 3, '自媒体：2 条内容 + 1 条归属自媒体的任务');
+  eq(byId.consult.count, 3, '咨询：1 待办 + 1 记录 + 1 条归属咨询的任务');
+  eq(byId.game.count, 3, '游戏：1 游戏 + 1 放松安排 + 1 条归属游戏的任务');
+
+  // 干净数据不应产生报告
+  deepEq(logic.purgeRemovedModules(logic.createInitialState()), [], '干净数据不应有清理报告');
 });
 
 test('健身动作的组数次数是正整数', () => {
@@ -214,18 +261,21 @@ test('各模块今日欠账数', () => {
   const today = '2026-10-08';
   logic.addTask(s, { title: '开发1', module: 'dev', date: today });
   logic.addTask(s, { title: '开发2', module: 'dev', date: today, done: true });
-  logic.addTask(s, { title: '自媒体1', module: 'media', date: today });
+  logic.addTask(s, { title: '学习1', module: 'study', date: today });
   logic.addTask(s, { title: '开发3', module: 'dev', date: '2026-10-09' });
   logic.addTask(s, { title: '逾期开发', module: 'dev', date: '2026-10-01' });
 
   eq(logic.modulePendingToday(s, 'dev', today), 1, '只数今天未完成的');
-  eq(logic.modulePendingToday(s, 'media', today), 1);
+  eq(logic.modulePendingToday(s, 'study', today), 1);
   eq(logic.modulePendingToday(s, 'diet', today), 0);
 
   const byModule = logic.pendingByModule(s, today);
   eq(byModule.dev, 1);
-  eq(byModule.media, 1);
-  eq(byModule.game, 0);
+  eq(byModule.study, 1);
+  eq(byModule.fitness, 0);
+  // 已移除的模块不应再出现在欠账统计里
+  eq('media' in byModule, false, '不应再有 media 欠账统计');
+  eq('game' in byModule, false, '不应再有 game 欠账统计');
 });
 
 test('datesWithTasks 给出有任务的日期', () => {
@@ -323,38 +373,92 @@ test('clear 能清空撤销栈', () => {
   eq(stack.canUndo(), false);
 });
 
+/* ---------------- 学习 ---------------- */
+
+test('学习条目：新增会补全字段并默认未开始', () => {
+  const s = fresh();
+  const item = logic.addStudyItem(s, { title: '  看完 JavaScript 事件循环  ' });
+  eq(item.title, '看完 JavaScript 事件循环', '标题应去掉首尾空格');
+  eq(item.kind, 'read', '未指定类型时默认阅读');
+  eq(item.status, 'todo', '默认未开始');
+  eq(item.minutes, 0, '默认时长为 0');
+  ok(item.id && item.createdAt && item.updatedAt, '应有 id 与时间戳');
+  eq(s.studyItems.length, 1);
+
+  eq(logic.addStudyItem(s, { title: '   ' }), null, '空白标题应被拒绝');
+  eq(s.studyItems.length, 1, '拒绝后不应写入');
+});
+
+test('学习条目：非法类型与进度会被纠正', () => {
+  const s = fresh();
+  const item = logic.addStudyItem(s, { title: '测试', kind: '不存在的类型', status: '乱写' });
+  eq(item.kind, 'read', '非法类型应回落到阅读');
+  eq(item.status, 'todo', '非法进度应回落到未开始');
+});
+
+test('学习条目：改字段与推进进度', () => {
+  const s = fresh();
+  const item = logic.addStudyItem(s, { title: '原题', kind: 'read' });
+
+  logic.updateStudyItem(s, item.id, { title: '新题', kind: 'course', minutes: 45, source: '某课程' });
+  eq(item.title, '新题');
+  eq(item.kind, 'course');
+  eq(item.minutes, 45);
+  eq(item.source, '某课程');
+
+  logic.updateStudyItem(s, item.id, { title: '   ' });
+  eq(item.title, '新题', '空白标题不应覆盖原标题');
+  logic.updateStudyItem(s, item.id, { status: '不存在' });
+  eq(item.status, 'todo', '非法进度不应生效');
+  logic.updateStudyItem(s, item.id, { minutes: -10 });
+  eq(item.minutes, 0, '负数时长应归零');
+
+  // 进度循环：未开始 → 学习中 → 已学完 → 未开始
+  eq(logic.advanceStudyItem(s, item.id).status, 'doing');
+  eq(logic.advanceStudyItem(s, item.id).status, 'done');
+  eq(logic.advanceStudyItem(s, item.id).status, 'todo', '三档应循环');
+});
+
+test('学习条目：统计累计时长与已学完数量', () => {
+  const s = fresh();
+  eq(logic.studyMinutesTotal(s), 0, '没有条目时为 0');
+  eq(logic.studyDoneCount(s), 0);
+
+  logic.addStudyItem(s, { title: 'A', minutes: 30 });
+  logic.addStudyItem(s, { title: 'B', minutes: 45, status: 'done' });
+  logic.addStudyItem(s, { title: 'C' });
+
+  eq(logic.studyMinutesTotal(s), 75, '累计时长应相加');
+  eq(logic.studyDoneCount(s), 1, '只数已学完的');
+});
+
+test('学习条目：可推送到今日计划', () => {
+  const s = fresh();
+  const item = logic.addStudyItem(s, { title: '看完事件循环' });
+  const task = logic.pushStudyToToday(s, item.id, '2026-10-09');
+  eq(task.title, '看完事件循环');
+  eq(task.module, 'study', '应归属学习模块');
+  eq(task.date, '2026-10-09');
+});
+
+test('学习条目：可删除', () => {
+  const s = fresh();
+  const item = logic.addStudyItem(s, { title: '待删' });
+  const removed = logic.removeStudyItem(s, item.id);
+  eq(removed.id, item.id);
+  eq(s.studyItems.length, 0);
+  eq(logic.removeStudyItem(s, '不存在'), null);
+
+  // 学习任务会正常出现在今日计划里
+  const s2 = fresh();
+  const it = logic.addStudyItem(s2, { title: '学点东西' });
+  logic.pushStudyToToday(s2, it.id, '2026-10-08');
+  const onDay = logic.tasksOn(s2, '2026-10-08');
+  eq(onDay.length, 1, '学习任务应计入当天任务');
+  eq(onDay[0].module, 'study');
+});
+
 /* ---------------- 首页摘要 ---------------- */
-
-test('moveMedia 只移动一档，越界返回 null（回归：曾出现一次点击跳两档）', () => {
-  const s = fresh();
-  const m = logic.addMedia(s, { title: '回归测试' });
-  eq(m.status, 'idea', '默认落在选题池');
-
-  // 每次调用只前进一档
-  const steps = [];
-  for (let i = 0; i < 3; i++) {
-    const r = logic.moveMedia(s, m.id, 1);
-    steps.push(r ? r.status : null);
-  }
-  deepEq(steps, ['writing', 'ready', 'published'], '应逐档前进，不能跳档');
-
-  // 已到最后一档：再前进应被拒绝
-  eq(logic.moveMedia(s, m.id, 1), null, '最后一档不应再前进');
-  eq(logic.findMedia(s, m.id).status, 'published', '状态不应被越界调用改变');
-
-  // 往回也一样
-  eq(logic.moveMedia(s, m.id, -1).status, 'ready', '应能后退一档');
-  logic.updateMedia(s, m.id, { status: 'idea' });
-  eq(logic.moveMedia(s, m.id, -1), null, '第一档不应再后退');
-});
-
-test('moveMedia 累计调用次数可观测（用于排查重复执行）', () => {
-  const s = fresh();
-  const m = logic.addMedia(s, { title: '计数' });
-  const before = logic.callStats.moveMedia;
-  logic.moveMedia(s, m.id, 1);
-  eq(logic.callStats.moveMedia, before + 1, '调用一次应只累加一次');
-});
 
 test('dataAttrs 不会把 data- 前缀重复叠加（回归：曾生成 data-data-ex 导致按钮失效）', async () => {
   const ui = await import('../web/ui.js');
@@ -429,7 +533,7 @@ test('首页摘要：逾期优先且最多 5 条', () => {
   const s = fresh();
   const today = '2026-10-08';
   logic.addTask(s, { title: '逾期', date: '2026-10-01' });
-  logic.addMedia(s, { title: '待发布稿子', status: 'ready' });
+  logic.addTask(s, { title: '今天的学习', module: 'study', date: today });
 
   const sum = logic.homeSummary(s, today);
   ok(sum.length > 0, '应有摘要');
@@ -437,5 +541,18 @@ test('首页摘要：逾期优先且最多 5 条', () => {
   ok(sum.length <= 5, '最多 5 条');
   for (const item of sum) {
     ok(item.text && item.route, item.key + ' 应有文字与跳转目标');
+    // 摘要跳转目标必须是真实存在的路由
+    ok(logic.NAV_ITEMS.some((n) => n.id === item.route), '跳转目标应是导航里的入口：' + item.route);
+  }
+});
+
+test('首页摘要：不再引用已移除的模块', () => {
+  const s = fresh();
+  const today = '2026-10-08';
+  const sum = logic.homeSummary(s, today);
+  for (const item of sum) {
+    for (const gone of ['media', 'consult', 'games', 'game']) {
+      notEq(item.route, gone, '摘要不应再指向已移除的 ' + gone);
+    }
   }
 });

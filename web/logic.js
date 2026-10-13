@@ -16,12 +16,10 @@ export const APP_TITLE = '我的工作台';
 
 /** 任务可归属的模块 */
 export const MODULES = [
-  { id: 'media', name: '自媒体', short: '自媒体' },
   { id: 'dev', name: '开发工作', short: '开发' },
-  { id: 'consult', name: '咨询工作', short: '咨询' },
+  { id: 'study', name: '学习', short: '学习' },
   { id: 'fitness', name: '健身计划', short: '健身' },
   { id: 'diet', name: '饮食计划', short: '饮食' },
-  { id: 'game', name: '游戏娱乐', short: '游戏' },
   { id: 'general', name: '通用', short: '通用' },
 ];
 
@@ -32,28 +30,28 @@ export function moduleName(id) {
   return m ? m.short : '通用';
 }
 
-/** 侧栏导航顺序（首页与今日计划不是任务归属模块） */
+/** 侧栏导航顺序（首页与今日计划不是任务归属模块，但都可进入） */
 export const NAV_ITEMS = [
   { id: 'home', name: '首页总览', icon: '▦' },
   { id: 'today', name: '今日计划', icon: '☑' },
-  { id: 'media', name: '自媒体', icon: '✎' },
   { id: 'dev', name: '开发工作', icon: '⌘' },
-  { id: 'consult', name: '咨询工作', icon: '☎' },
+  { id: 'study', name: '学习', icon: '✎' },
   { id: 'fitness', name: '健身计划', icon: '⚡' },
   { id: 'diet', name: '饮食计划', icon: '◍' },
-  { id: 'games', name: '游戏娱乐', icon: '◈' },
   { id: 'settings', name: '数据与设置', icon: '⚙' },
 ];
 
-/** 状态枚举与中文标签 */
-export const MEDIA_STATUS = {
-  idea: '选题池',
-  writing: '写作中',
-  ready: '待发布',
-  published: '已发布',
-};
-export const MEDIA_ORDER = ['idea', 'writing', 'ready', 'published'];
+/**
+ * 已被移除的模块：从界面和数据里都清掉。
+ * 保留这份清单是为了让旧数据能识别出来并安全清理，而不是静默丢弃。
+ */
+export const REMOVED_MODULES = [
+  { id: 'media', name: '自媒体', legacyFields: ['media'] },
+  { id: 'consult', name: '咨询工作', legacyFields: ['consultTasks', 'consultRecords'] },
+  { id: 'game', name: '游戏娱乐', legacyFields: ['games', 'playPlan'] },
+];
 
+/** 状态枚举与中文标签 */
 export const DEV_STATUS = {
   todo: '未开始',
   doing: '开发中',
@@ -61,13 +59,6 @@ export const DEV_STATUS = {
   online: '已上线',
 };
 export const DEV_ORDER = ['todo', 'doing', 'testing', 'online'];
-
-export const GAME_STATUS = {
-  wish: '想玩',
-  playing: '在玩',
-  cleared: '已通关',
-};
-export const GAME_ORDER = ['wish', 'playing', 'cleared'];
 
 export const MEALS = [
   { key: 'breakfast', name: '早餐' },
@@ -119,17 +110,41 @@ export function createInitialState() {
     updatedAt: null,
     tasks: [],
     notes: [],
-    media: [],
     devTasks: [],
     devIdeas: [],
-    consultTasks: [],
-    consultRecords: [],
+    studyItems: [],
     fitness: { routine: defaultFitnessRoutine(), records: {} },
     diet: { meals: {}, recipes: [], shopping: [] },
-    games: [],
-    playPlan: [],
     settings: { fitnessWeeklyGoal: 5, density: 'comfortable' },
   };
+}
+
+/**
+ * 清理已移除模块的数据。
+ * 返回被清掉的内容统计，供界面如实告知用户（不静默丢数据）。
+ */
+export function purgeRemovedModules(input) {
+  const report = [];
+  if (!input || typeof input !== 'object') return report;
+
+  for (const mod of REMOVED_MODULES) {
+    let count = 0;
+    for (const field of mod.legacyFields) {
+      if (!(field in input)) continue;
+      const v = input[field];
+      if (Array.isArray(v)) count += v.length;
+      else if (v && typeof v === 'object') count += Object.keys(v).length;
+      delete input[field];
+    }
+    // 这些模块名下的任务也一并清掉（模块本身已不存在）
+    if (Array.isArray(input.tasks)) {
+      const before = input.tasks.length;
+      input.tasks = input.tasks.filter((t) => t && t.module !== mod.id);
+      count += before - input.tasks.length;
+    }
+    if (count > 0) report.push({ id: mod.id, name: mod.name, count });
+  }
+  return report;
 }
 
 /** 补齐缺失字段，兼容旧数据与手改数据 */
@@ -138,10 +153,13 @@ export function normalizeState(input) {
   if (!input || typeof input !== 'object') return base;
   const out = Object.assign(base, input);
 
-  for (const f of ['tasks', 'notes', 'media', 'devTasks', 'devIdeas', 'consultTasks', 'consultRecords', 'games', 'playPlan']) {
+  // 先清掉已移除模块的内容，再做字段校正
+  purgeRemovedModules(out);
+
+  for (const f of ['tasks', 'notes', 'devTasks', 'devIdeas', 'studyItems']) {
     if (!Array.isArray(out[f])) out[f] = [];
   }
-  // 旧数据里游戏模块的 id 可能是 games，这里统一
+
   if (!out.fitness || typeof out.fitness !== 'object') out.fitness = { routine: defaultFitnessRoutine(), records: {} };
   if (!Array.isArray(out.fitness.routine) || out.fitness.routine.length === 0) {
     out.fitness.routine = defaultFitnessRoutine();
@@ -385,103 +403,6 @@ export function noteToTask(state, id, opts) {
 }
 
 /* ============================================================
-   自媒体
-   ============================================================ */
-
-export function addMedia(state, input) {
-  const src = input || {};
-  const title = String(src.title == null ? '' : src.title).trim();
-  if (!title) return null;
-  const item = {
-    id: src.id || newId('m'),
-    title,
-    platform: src.platform == null ? '' : String(src.platform),
-    status: MEDIA_ORDER.includes(src.status) ? src.status : 'idea',
-    plannedDate: date.isValidDateStr(src.plannedDate) ? src.plannedDate : '',
-    note: src.note == null ? '' : String(src.note),
-    createdAt: src.createdAt || date.nowIso(),
-    updatedAt: date.nowIso(),
-  };
-  state.media.push(item);
-  return item;
-}
-
-export function findMedia(state, id) {
-  return state.media.find((m) => m.id === id) || null;
-}
-
-export function updateMedia(state, id, patch) {
-  const item = findMedia(state, id);
-  if (!item) return null;
-  const p = patch || {};
-  if (p.title != null) {
-    const t = String(p.title).trim();
-    if (t) item.title = t;
-  }
-  if (p.platform != null) item.platform = String(p.platform);
-  if (p.status != null && MEDIA_ORDER.includes(p.status)) item.status = p.status;
-  if (p.plannedDate != null) item.plannedDate = date.isValidDateStr(p.plannedDate) ? p.plannedDate : '';
-  if (p.note != null) item.note = String(p.note);
-  item.updatedAt = date.nowIso();
-  return item;
-}
-
-export function removeMedia(state, id) {
-  const i = state.media.findIndex((m) => m.id === id);
-  if (i === -1) return null;
-  const [removed] = state.media.splice(i, 1);
-  return removed;
-}
-
-/** 各关键动作的累计调用次数（只用于排查"一次操作执行了两次"这类问题，不参与业务） */
-export const callStats = {
-  moveMedia: 0,
-  toggleFitnessSet: 0,
-};
-
-/**
- * 换列：dir 为 1 向后、-1 向前。
- * 越界时返回 null（按钮应处于禁用态），不做环绕。
- */
-export function moveMedia(state, id, dir) {
-  callStats.moveMedia += 1;
-  const item = findMedia(state, id);
-  if (!item) return null;
-  const i = MEDIA_ORDER.indexOf(item.status);
-  const next = i + (dir > 0 ? 1 : -1);
-  if (next < 0 || next >= MEDIA_ORDER.length) return null;
-  item.status = MEDIA_ORDER[next];
-  item.updatedAt = date.nowIso();
-  return item;
-}
-
-export function mediaByStatus(state) {
-  const out = {};
-  for (const s of MEDIA_ORDER) out[s] = [];
-  for (const m of state.media) {
-    if (!out[m.status]) out[m.status] = [];
-    out[m.status].push(m);
-  }
-  return out;
-}
-
-/** 自媒体：待发布（首页摘要用） */
-export function mediaReady(state) {
-  return state.media.filter((m) => m.status === 'ready');
-}
-
-/** 把一条自媒体内容推到今天做 */
-export function pushMediaToToday(state, id, day) {
-  const item = findMedia(state, id);
-  if (!item) return null;
-  return addTask(state, {
-    title: '「' + item.title + '」' + (item.status === 'ready' ? '发布' : '推进'),
-    module: 'media',
-    date: day || date.todayStr(),
-  });
-}
-
-/* ============================================================
    开发工作
    ============================================================ */
 
@@ -595,146 +516,104 @@ export function devIdeaToTask(state, id, opts) {
   return devTask;
 }
 
-export function unhandledIdeas(state) {
-  return state.devIdeas.filter((i) => !i.handled);
-}
-
 /* ============================================================
-   咨询工作
+   学习
    ============================================================ */
 
-export function addConsultTask(state, input) {
+/** 学习条目的类型 */
+export const STUDY_KINDS = {
+  read: '阅读',
+  course: '课程',
+  practice: '练习',
+  video: '视频',
+  other: '其他',
+};
+export const STUDY_KIND_ORDER = ['read', 'course', 'practice', 'video', 'other'];
+
+/** 学习条目的进度 */
+export const STUDY_STATUS = {
+  todo: '未开始',
+  doing: '学习中',
+  done: '已学完',
+};
+export const STUDY_ORDER = ['todo', 'doing', 'done'];
+
+export function addStudyItem(state, input) {
   const src = typeof input === 'string' ? { title: input } : (input || {});
   const title = String(src.title == null ? '' : src.title).trim();
   if (!title) return null;
   const item = {
-    id: src.id || newId('c'),
+    id: src.id || newId('s'),
     title,
+    kind: STUDY_KIND_ORDER.includes(src.kind) ? src.kind : 'read',
+    status: STUDY_ORDER.includes(src.status) ? src.status : 'todo',
+    minutes: Math.max(0, Number(src.minutes) || 0),
+    source: src.source == null ? '' : String(src.source),
     note: src.note == null ? '' : String(src.note),
-    done: !!src.done,
     createdAt: src.createdAt || date.nowIso(),
     updatedAt: date.nowIso(),
   };
-  state.consultTasks.push(item);
+  state.studyItems.push(item);
   return item;
 }
 
-export function findConsultTask(state, id) {
-  return state.consultTasks.find((c) => c.id === id) || null;
+export function findStudyItem(state, id) {
+  return state.studyItems.find((s) => s.id === id) || null;
 }
 
-export function updateConsultTask(state, id, patch) {
-  const item = findConsultTask(state, id);
+export function updateStudyItem(state, id, patch) {
+  const item = findStudyItem(state, id);
   if (!item) return null;
   const p = patch || {};
   if (p.title != null) {
-    const t = String(p.title).trim();
-    if (t) item.title = t;
+    const title = String(p.title).trim();
+    if (title) item.title = title;
   }
+  if (p.kind != null && STUDY_KIND_ORDER.includes(p.kind)) item.kind = p.kind;
+  if (p.status != null && STUDY_ORDER.includes(p.status)) item.status = p.status;
+  if (p.minutes != null) item.minutes = Math.max(0, Number(p.minutes) || 0);
+  if (p.source != null) item.source = String(p.source);
   if (p.note != null) item.note = String(p.note);
-  if (p.done != null) item.done = !!p.done;
   item.updatedAt = date.nowIso();
   return item;
 }
 
-export function toggleConsultTask(state, id) {
-  const item = findConsultTask(state, id);
+export function removeStudyItem(state, id) {
+  const i = state.studyItems.findIndex((s) => s.id === id);
+  if (i === -1) return null;
+  const [removed] = state.studyItems.splice(i, 1);
+  return removed;
+}
+
+/** 累计学习时长（分钟） */
+export function studyMinutesTotal(state) {
+  return state.studyItems.reduce((n, s) => n + (Number(s.minutes) || 0), 0);
+}
+
+/** 已学完的条目数 */
+export function studyDoneCount(state) {
+  return state.studyItems.filter((s) => s.status === 'done').length;
+}
+
+/** 把学习条目推进到下一档进度 */
+export function advanceStudyItem(state, id) {
+  const item = findStudyItem(state, id);
   if (!item) return null;
-  item.done = !item.done;
+  const idx = STUDY_ORDER.indexOf(item.status);
+  item.status = STUDY_ORDER[(idx + 1) % STUDY_ORDER.length];
   item.updatedAt = date.nowIso();
   return item;
 }
 
-export function removeConsultTask(state, id) {
-  const i = state.consultTasks.findIndex((c) => c.id === id);
-  if (i === -1) return null;
-  const [removed] = state.consultTasks.splice(i, 1);
-  return removed;
-}
-
-export function pushConsultToToday(state, id, day) {
-  const item = findConsultTask(state, id);
+/** 把学习条目推到今天做 */
+export function pushStudyToToday(state, id, day) {
+  const item = findStudyItem(state, id);
   if (!item) return null;
-  return addTask(state, { title: item.title, module: 'consult', date: day || date.todayStr() });
+  return addTask(state, { title: item.title, module: 'study', date: day || date.todayStr() });
 }
 
-/** 咨询记录（会议 / 沟通） */
-export function addConsultRecord(state, input) {
-  const src = input || {};
-  const who = String(src.who == null ? '' : src.who).trim();
-  const summary = String(src.summary == null ? '' : src.summary).trim();
-  if (!who && !summary) return null;
-  const rec = {
-    id: src.id || newId('r'),
-    who: who || '未填写对象',
-    date: date.isValidDateStr(src.date) ? src.date : date.todayStr(),
-    summary,
-    todo: src.todo == null ? '' : String(src.todo),
-    nextDate: date.isValidDateStr(src.nextDate) ? src.nextDate : '',
-    createdAt: src.createdAt || date.nowIso(),
-    updatedAt: date.nowIso(),
-  };
-  state.consultRecords.push(rec);
-  return rec;
-}
-
-export function findConsultRecord(state, id) {
-  return state.consultRecords.find((r) => r.id === id) || null;
-}
-
-export function updateConsultRecord(state, id, patch) {
-  const rec = findConsultRecord(state, id);
-  if (!rec) return null;
-  const p = patch || {};
-  if (p.who != null) {
-    const v = String(p.who).trim();
-    if (v) rec.who = v;
-  }
-  if (p.date != null && date.isValidDateStr(p.date)) rec.date = p.date;
-  if (p.summary != null) rec.summary = String(p.summary);
-  if (p.todo != null) rec.todo = String(p.todo);
-  if (p.nextDate != null) rec.nextDate = date.isValidDateStr(p.nextDate) ? p.nextDate : '';
-  rec.updatedAt = date.nowIso();
-  return rec;
-}
-
-export function removeConsultRecord(state, id) {
-  const i = state.consultRecords.findIndex((r) => r.id === id);
-  if (i === -1) return null;
-  const [removed] = state.consultRecords.splice(i, 1);
-  return removed;
-}
-
-/** 记录里的待办 → 正式咨询待办（记录里的内容清空，避免重复提取） */
-export function recordTodoToTask(state, id) {
-  const rec = findConsultRecord(state, id);
-  if (!rec || !rec.todo.trim()) return null;
-  const created = addConsultTask(state, { title: rec.todo, note: '来自 ' + rec.date + ' 与 ' + rec.who + ' 的沟通' });
-  if (!created) return null;
-  rec.todo = '';
-  rec.updatedAt = date.nowIso();
-  return created;
-}
-
-/** 记录的下次回访日 → 排进那天的今日计划 */
-export function recordNextDateToPlan(state, id) {
-  const rec = findConsultRecord(state, id);
-  if (!rec || !date.isValidDateStr(rec.nextDate)) return null;
-  return addTask(state, {
-    title: '回访 ' + rec.who,
-    module: 'consult',
-    date: rec.nextDate,
-    note: rec.summary,
-  });
-}
-
-export function consultPendingCount(state) {
-  return state.consultTasks.filter((c) => !c.done).length;
-}
-
-export function consultMeetingsThisWeek(state, today) {
-  const week = date.weekDates(today || date.todayStr());
-  return state.consultRecords.filter((r) => week.includes(r.date)).length;
+export function unhandledIdeas(state) {
+  return state.devIdeas.filter((i) => !i.handled);
 }
 
 /* ============================================================
@@ -1046,109 +925,6 @@ export function pushMealToToday(state, mealKey, day) {
 }
 
 /* ============================================================
-   游戏娱乐
-   ============================================================ */
-
-export function addGame(state, input) {
-  const src = input || {};
-  const name = String(src.name == null ? '' : src.name).trim();
-  if (!name) return null;
-  const g = {
-    id: src.id || newId('g'),
-    name,
-    platform: src.platform == null ? '' : String(src.platform),
-    status: GAME_ORDER.includes(src.status) ? src.status : 'wish',
-    note: src.note == null ? '' : String(src.note),
-    createdAt: src.createdAt || date.nowIso(),
-    updatedAt: date.nowIso(),
-  };
-  state.games.push(g);
-  return g;
-}
-
-export function findGame(state, id) {
-  return state.games.find((g) => g.id === id) || null;
-}
-
-export function updateGame(state, id, patch) {
-  const g = findGame(state, id);
-  if (!g) return null;
-  const p = patch || {};
-  if (p.name != null) {
-    const n = String(p.name).trim();
-    if (n) g.name = n;
-  }
-  if (p.platform != null) g.platform = String(p.platform);
-  if (p.status != null && GAME_ORDER.includes(p.status)) g.status = p.status;
-  if (p.note != null) g.note = String(p.note);
-  g.updatedAt = date.nowIso();
-  return g;
-}
-
-export function removeGame(state, id) {
-  const i = state.games.findIndex((g) => g.id === id);
-  if (i === -1) return null;
-  const [removed] = state.games.splice(i, 1);
-  return removed;
-}
-
-/** 开始玩：从"想玩"进入"在玩" */
-export function startGame(state, id) {
-  return updateGame(state, id, { status: 'playing' });
-}
-
-/** 通关 */
-export function clearGame(state, id) {
-  return updateGame(state, id, { status: 'cleared' });
-}
-
-export function gamesByStatus(state) {
-  const out = {};
-  for (const s of GAME_ORDER) out[s] = [];
-  for (const g of state.games) {
-    if (!out[g.status]) out[g.status] = [];
-    out[g.status].push(g);
-  }
-  return out;
-}
-
-/** 放松安排 */
-export function addPlayPlan(state, input) {
-  const src = input || {};
-  const weekday = Number(src.weekday);
-  if (!(weekday >= 1 && weekday <= 7)) return null;
-  const p = {
-    id: newId('p'),
-    weekday,
-    duration: src.duration == null ? '' : String(src.duration),
-    note: src.note == null ? '' : String(src.note),
-  };
-  state.playPlan.push(p);
-  return p;
-}
-
-export function removePlayPlan(state, id) {
-  const i = state.playPlan.findIndex((p) => p.id === id);
-  if (i === -1) return null;
-  const [removed] = state.playPlan.splice(i, 1);
-  return removed;
-}
-
-export function playPlansOfWeekday(state, weekday) {
-  return state.playPlan.filter((p) => p.weekday === Number(weekday));
-}
-
-/** 安排今天放松 */
-export function pushPlayToToday(state, day) {
-  const d = day || date.todayStr();
-  const plans = playPlansOfWeekday(state, date.weekdayNum(d));
-  const label = plans.length
-    ? '放松 ' + plans.map((p) => p.duration || '一会儿').join('、')
-    : '放松一会儿';
-  return addTask(state, { title: label, module: 'game', date: d });
-}
-
-/* ============================================================
    设置
    ============================================================ */
 
@@ -1183,18 +959,6 @@ export function homeSummary(state, today) {
       route: 'today',
       anchor: 'overdue',
       level: 'danger',
-    });
-  }
-
-  const ready = mediaReady(state);
-  if (ready.length) {
-    out.push({
-      key: 'media-ready',
-      text: '自媒体 ' + ready.length + ' 篇待发布',
-      detail: ready.slice(0, 3).map((m) => m.title).join('、'),
-      route: 'media',
-      anchor: ready[0].id,
-      level: 'warn',
     });
   }
 

@@ -40,15 +40,11 @@ function emptyState() {
     updatedAt: null,
     tasks: [],
     notes: [],
-    media: [],
     devTasks: [],
     devIdeas: [],
-    consultTasks: [],
-    consultRecords: [],
+    studyItems: [],
     fitness: { routine: defaultFitnessRoutine(), records: {} },
     diet: { meals: {}, recipes: [], shopping: [] },
-    games: [],
-    playPlan: [],
     settings: { fitnessWeeklyGoal: 5, density: 'comfortable' },
   };
 }
@@ -89,10 +85,18 @@ function normalize(input) {
   if (!input || typeof input !== 'object') return base;
   const out = Object.assign(base, input);
 
-  const arrFields = ['tasks', 'notes', 'media', 'devTasks', 'devIdeas', 'consultTasks', 'consultRecords', 'games', 'playPlan'];
+  // 已移除模块的字段直接丢掉（自媒体、咨询工作、游戏娱乐）
+  const removedFields = ['media', 'consultTasks', 'consultRecords', 'games', 'playPlan', 'studyLog'];
+  for (const f of removedFields) delete out[f];
+
+  const arrFields = ['tasks', 'notes', 'devTasks', 'devIdeas', 'studyItems'];
   for (const f of arrFields) {
     if (!Array.isArray(out[f])) out[f] = [];
   }
+
+  // 已移除模块名下的任务也一并清掉（模块本身已不存在，留着会变成无处可去的孤儿数据）
+  const removedModuleIds = ['media', 'consult', 'game'];
+  out.tasks = out.tasks.filter((t) => t && !removedModuleIds.includes(t.module));
 
   if (!out.fitness || typeof out.fitness !== 'object') out.fitness = { routine: defaultFitnessRoutine(), records: {} };
   if (!Array.isArray(out.fitness.routine) || out.fitness.routine.length === 0) {
@@ -123,7 +127,9 @@ function normalize(input) {
 /** 判断一个对象是否像本应用的备份（导入时用） */
 function looksLikeState(obj) {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
-  const markers = ['tasks', 'notes', 'media', 'devTasks', 'devIdeas', 'consultTasks', 'consultRecords', 'fitness', 'diet', 'games', 'playPlan', 'settings', 'schemaVersion'];
+  // 只要命中任意一个本应用特有的字段就认；旧备份里的 media/games 等也算（导入后会走 normalize 清理）
+  const markers = ['tasks', 'notes', 'devTasks', 'devIdeas', 'studyItems', 'fitness', 'diet',
+    'media', 'consultTasks', 'consultRecords', 'games', 'playPlan', 'settings', 'schemaVersion'];
   return markers.some((k) => Object.prototype.hasOwnProperty.call(obj, k));
 }
 
