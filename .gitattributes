@@ -1,0 +1,22 @@
+# ============================================================
+#  换行符约定
+# ============================================================
+# 说明：不写这个文件时，这类"在 Windows 上执行"的脚本可能以 LF 换行入库，
+# 而 cmd.exe 对 LF 的容忍度并不可靠，可能出现脚本解析错误。
+
+# 批处理脚本必须用 CRLF，否则 cmd 解析可能出错
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# 其余源码与文档统一用 LF，避免跨平台差异
+*.js    text eol=lf
+*.mjs   text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+
+# 二进制文件不做换行转换
+*.png binary
+*.jpg binary
+*.ico binary

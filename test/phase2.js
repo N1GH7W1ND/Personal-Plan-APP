@@ -1,0 +1,610 @@
+'use strict';
+/**
+ * 阶段 2 测试：数据持久化
+ * 覆盖：首次落盘、原子写入、读回一致、每日备份、备份轮换、
+ *       损坏隔离与自动恢复、revision 冲突拒绝、导入校验、请求体上限、导出、health 统计。
+ */
+
+const t = require('./lib/t');
+const h = require('./lib/helpers');
+const fs = require('node:fs');
+
+t.setFile('阶段2 数据持久化');
+
+let server = null;
+let dataDir = null;
+
+/** 切到一个干净的数据目录 */
+async function resetDir(tag) {
+  dataDir = await h.useDataDir(await h.makeTmpDir('p2-' + (tag || 'x')));
+  await h.store.read();
+  return dataDir;
+}
+
+// ---------------- 纯函数 ----------------
+
+t.test('空状态模板字段齐全', async () => {
+  const s = h.store.emptyState();
+  t.eq(s.schemaVersion, 1, 'schemaVersion');
+  t.eq(s.revision, 0, 'revision 初值');
+  for (const f of ['tasks', 'notes', 'media', 'devTasks', 'devIdeas', 'consultTasks', 'consultRecords', 'games', 'playPlan']) {
+    t.ok(Array.isArray(s[f]), f + ' 应为数组');
+  }
+  t.deepEq(s.fitness.records, {}, 'fitness.records 结构');
+  t.deepEq(s.diet, { meals: {}, recipes: [], shopping: [] }, 'diet 结构');
+  t.eq(s.settings.fitnessWeeklyGoal, 5, '默认每周健身目标');
+  t.eq(s.settings.density, 'comfortable', '默认界面密度');
+});
+
+t.test('服务端空模板自带完整的健身周安排（磁盘文件自描述）', async () => {
+  const s = h.store.emptyState();
+  t.eq(s.fitness.routine.length, 7, '应有 7 天安排');
+  t.ok(s.fitness.routine.some((d) => d.rest), '应有休息日');
+  t.ok(s.fitness.routine.some((d) => !d.rest && d.exercises.length > 0), '应有训练日与动作');
+  for (const day of s.fitness.routine) {
+    for (const e of day.exercises) {
+      t.ok(e.id && e.name && e.sets > 0 && e.reps > 0, '动作应字段完整：' + JSON.stringify(e));
+    }
+  }
+
+  await resetDir('default-routine');
+  const back = await h.store.read();
+  t.eq(back.state.fitness.routine.length, 7, '从磁盘读回的空数据也应有 7 天安排');
+
+  t.eq(h.store.normalize({}).fitness.routine.length, 7, 'normalize 空对象也应补齐周安排');
+  t.eq(h.store.normalize({ fitness: { routine: [], records: {} } }).fitness.routine.length, 7,
+    'routine 为空数组时应补齐');
+});
+
+t.test('normalize 能容忍残缺/手改数据', async () => {
+  const n = h.store.normalize({ tasks: 'not-an-array', fitness: null, diet: 5, settings: { density: 'weird' } });
+  t.deepEq(n.tasks, [], 'tasks 应被修正为空数组');
+  t.eq(n.fitness.routine.length, 7, 'fitness 应被补齐成完整周安排');
+  t.deepEq(n.fitness.records, {}, 'fitness.records 应被补齐');
+  t.deepEq(n.diet, { meals: {}, recipes: [], shopping: [] }, 'diet 应被补齐');
+  t.eq(n.settings.density, 'comfortable', '非法 density 应回落到 comfortable');
+  t.eq(n.settings.fitnessWeeklyGoal, 5, '非法目标天数应回落为 5');
+
+  const n2 = h.store.normalize(null);
+  t.eq(n2.schemaVersion, 1, '传入 null 也应返回合法模板');
+  t.ok(Array.isArray(n2.tasks), 'tasks 应为数组');
+
+  const n3 = h.store.normalize({ fitness: { records: [1, 2] }, diet: { meals: [] } });
+  t.deepEq(n3.fitness.records, {}, 'fitness.records 是数组时应修正为对象');
+  t.deepEq(n3.diet.meals, {}, 'diet.meals 是数组时应修正为对象');
+});
+
+t.test('looksLikeState 能区分备份文件与随便一个 JSON', async () => {
+  t.eq(h.store.looksLikeState(h.store.emptyState()), true, '空数据模板应被认可');
+  t.eq(h.store.looksLikeState({ tasks: [] }), true, '含 tasks 的对象应被认可');
+  t.eq(h.store.looksLikeState({ settings: {} }), true, '含 settings 的对象应被认可');
+  t.eq(h.store.looksLikeState({ hello: 'world' }), false, '无关对象应被拒绝');
+  t.eq(h.store.looksLikeState([1, 2, 3]), false, '数组应被拒绝');
+  t.eq(h.store.looksLikeState(null), false, 'null 应被拒绝');
+});
+
+// ---------------- 落盘与读回 ----------------
+
+t.test('首次读取会把空数据真正写到磁盘（格式化、以换行结尾）', async () => {
+  await resetDir('init');
+  const file = h.dataFile(dataDir);
+  t.ok(fs.existsSync(file), '应创建 data.json');
+
+  const text = fs.readFileSync(file, 'utf8');
+  t.includes(text, '\n  "tasks": []', '应是格式化后的 JSON');
+  t.ok(text.endsWith('\n'), '文件应以换行结尾');
+
+  const parsed = JSON.parse(text);
+  t.eq(parsed.schemaVersion, 1, 'schemaVersion');
+  t.eq(parsed.revision, 0, '初始 revision 应为 0');
+});
+
+t.test('中文以可读形式存放，而不是被转义', async () => {
+  await resetDir('utf8');
+  const r = await h.saveState(server.port, Object.assign(h.store.emptyState(), {
+    tasks: [{ id: 't_1', title: '写公众号初稿', module: 'media', date: '2026-10-08', done: false }],
+  }), 0);
+  t.eq(r.status, 200, '保存状态码');
+
+  const text = fs.readFileSync(h.dataFile(dataDir), 'utf8');
+  t.includes(text, '写公众号初稿', '中文应可读');
+  t.notIncludes(text, '\\u5199', '不应出现 unicode 转义');
+});
+
+t.test('写入后读回一致，revision 单调递增', async () => {
+  await resetDir('roundtrip');
+  let rev = 0;
+  for (let i = 1; i <= 5; i++) {
+    const out = await h.store.write(Object.assign(h.store.emptyState(), {
+      notes: [{ id: 'n_' + i, text: '备忘 ' + i, done: false }],
+    }), rev);
+    t.eq(out.ok, true, '第 ' + i + ' 次写入应成功');
+    t.eq(out.revision, i, '第 ' + i + ' 次写入后 revision');
+    rev = out.revision;
+  }
+
+  const back = await h.store.read();
+  t.eq(back.revision, 5, '磁盘上的 revision');
+  t.eq(back.state.notes.length, 1, 'notes 条数');
+  t.eq(back.state.notes[0].text, '备忘 5', '内容应为最后一次写入的值');
+  t.ok(back.updatedAt, '应有 updatedAt 时间戳');
+  t.ok(back.sizeBytes > 0, 'sizeBytes 应大于 0');
+});
+
+t.test('写入是原子替换，不会留下临时文件', async () => {
+  await resetDir('atomic');
+  // 人为留一个"上次崩溃残留"的临时文件
+  await h.writeFileText(h.path.join(dataDir, 'data.json.tmp'), '残留的半截内容');
+
+  await h.store.write(Object.assign(h.store.emptyState(), {
+    notes: [{ id: 'n_atomic', text: '原子写入', done: false }],
+  }), 0);
+
+  const left = fs.readdirSync(dataDir).filter((f) => f.endsWith('.tmp'));
+  t.deepEq(left, [], '不应残留临时文件');
+
+  const parsed = JSON.parse(fs.readFileSync(h.dataFile(dataDir), 'utf8'));
+  t.eq(parsed.notes[0].text, '原子写入', '内容应完整写入');
+});
+
+// ---------------- 备份 ----------------
+
+/** 只数"自动每日备份"（data_日期_时间.json），排除带标签的手动备份 */
+async function listDailyBackups(dir) {
+  const all = await h.listBackupFiles(dir);
+  return all.filter((f) => /^data_\d{8}_\d{6}(_\d+)?\.json$/.test(f));
+}
+
+t.test('每日备份：当天第一次写入前留一份，之后不重复留', async () => {
+  await resetDir('backup');
+  // 首次读取已把空数据落盘，所以第一次写入前已经"有数据可备份"
+  const out = await h.store.write(Object.assign(h.store.emptyState(), {
+    notes: [{ id: 'n_1', text: '初始内容', done: false }],
+  }), 0);
+
+  const backups0 = await listDailyBackups(dataDir);
+  t.eq(backups0.length, 1, '第一次写入前应留 1 份自动备份（内容是落盘时的空数据）');
+  const tpl = JSON.parse(fs.readFileSync(h.path.join(h.backupDir(dataDir), backups0[0]), 'utf8'));
+  t.deepEq(tpl.notes, [], '这份备份里应还是空数据');
+  t.eq(tpl.revision, 0, '备份里的 revision 应是写入前的值');
+
+  await h.store.write(Object.assign(h.store.emptyState(), {
+    notes: [{ id: 'n_2', text: '第二次', done: false }],
+  }), out.revision);
+  const daily1 = await listDailyBackups(dataDir);
+  t.eq(daily1.length, 1,
+    '同一天仍应只有 1 份自动备份（实际 ' + daily1.length + '：' +
+    (await h.listBackupFiles(dataDir)).join(', ') + '）｜诊断：' + h.store.takeDiagnostics().join(' / '));
+
+  // 当天再写两次，不应重复备份
+  let rev = (await h.store.read()).revision;
+  rev = (await h.store.write(Object.assign(h.store.emptyState(), { notes: [] }), rev)).revision;
+  rev = (await h.store.write(Object.assign(h.store.emptyState(), { notes: [] }), rev)).revision;
+  t.eq((await listDailyBackups(dataDir)).length, 1, '同一天多次写入仍只有 1 份自动备份');
+});
+
+t.test('备份内容是"备份那一刻"的数据快照', async () => {
+  await resetDir('backup-snapshot');
+  // 先准备一份有内容的数据
+  await h.store.write(Object.assign(h.store.emptyState(), {
+    notes: [{ id: 'n_snap', text: '快照内容', done: false }],
+  }), 0);
+
+  // 清掉备份，手动触发一次备份，再改数据 → 备份里应是改动前的内容
+  const bdir = h.backupDir(dataDir);
+  for (const f of fs.readdirSync(bdir)) fs.unlinkSync(h.path.join(bdir, f));
+  await h.store.backupNow('snap');
+
+  const rev = (await h.store.read()).revision;
+  await h.store.write(Object.assign(h.store.emptyState(), {
+    notes: [{ id: 'n_new', text: '改动后的内容', done: false }],
+  }), rev);
+
+  const all = await h.listBackupFiles(dataDir);
+  const snap = all.find((f) => f.includes('snap'));
+  t.ok(snap, '应存在手动备份');
+  const text = fs.readFileSync(h.path.join(bdir, snap), 'utf8');
+  t.includes(text, '快照内容', '备份里应是备份时刻的数据');
+  t.notIncludes(text, '改动后的内容', '备份里不应有备份之后才发生的内容');
+});
+t.test('备份轮换：最多保留 20 份，删的是最旧的', async () => {
+  await resetDir('rotate');
+  const dir = h.backupDir(dataDir);
+  fs.mkdirSync(dir, { recursive: true });
+
+  const names = [];
+  for (let i = 0; i < 25; i++) {
+    const name = 'data_202601' + String(i + 1).padStart(2, '0') + '_120000.json';
+    fs.writeFileSync(h.path.join(dir, name), '{"schemaVersion":1,"tasks":[]}', 'utf8');
+    names.push(name);
+  }
+  t.eq((await h.store.listBackups()).length, 25, '塞入后应有 25 份');
+
+  const removed = await h.store.rotateBackups();
+  t.eq(removed.length, 5, '应删除 5 份');
+
+  const after = (await h.store.listBackups()).map((b) => b.name);
+  t.eq(after.length, 20, '轮换后应剩下 20 份');
+  t.eq(after.includes(names[0]), false, '最旧的一份应被删除');
+  t.eq(after.includes(names[24]), true, '最新的一份应保留');
+});
+
+t.test('listBackups 只认 data_ 前缀的 json，坏文件与临时文件不算', async () => {
+  await resetDir('listbackups');
+  const dir = h.backupDir(dataDir);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(h.path.join(dir, 'data_20260101_120000.json'), '{}', 'utf8');
+  fs.writeFileSync(h.path.join(dir, 'data.broken_20260101_120000.json'), '{}', 'utf8');
+  fs.writeFileSync(h.path.join(dir, 'data_20260101_120000.json.tmp'), '{}', 'utf8');
+  fs.writeFileSync(h.path.join(dir, 'readme.txt'), 'hi', 'utf8');
+
+  const list = await h.store.listBackups();
+  t.deepEq(list.map((b) => b.name), ['data_20260101_120000.json'], '应只列出真正的备份');
+});
+
+// ---------------- 损坏恢复 ----------------
+
+t.test('数据文件被改坏时：隔离坏文件并从最近备份恢复', async () => {
+  await resetDir('corrupt');
+  let out = await h.store.write(Object.assign(h.store.emptyState(), {
+    notes: [{ id: 'n_good', text: '这是好数据', done: false }],
+  }), 0);
+  out = await h.store.write(Object.assign(h.store.emptyState(), {
+    notes: [{ id: 'n_good', text: '这是好数据', done: false }, { id: 'n_2', text: '多一条', done: false }],
+  }), out.revision);
+
+  // 手动做一份包含当前内容的备份（自动备份是"当天首次写入前"的快照，不含最新改动）
+  await h.store.backupNow('manual');
+  const backups = await h.listBackupFiles(dataDir);
+  t.ok(backups.length >= 1, '应已有可用备份（实际 ' + backups.length + ' 份）');
+  const backupText = fs.readFileSync(h.path.join(h.backupDir(dataDir), backups[backups.length - 1]), 'utf8');
+  t.includes(backupText, '这是好数据', '这份备份里应有可恢复的数据');
+
+  await h.writeFileText(h.dataFile(dataDir), '{{{ 这不是 JSON');
+
+  const recovered = await h.store.read();
+  t.eq(recovered.recovered, true, '应标记为已恢复');
+  t.ok(recovered.recoveredFrom, '应说明从哪份备份恢复');
+  t.eq(recovered.state.notes[0].text, '这是好数据', '应恢复到备份里的内容');
+
+  const broken = fs.readdirSync(h.backupDir(dataDir)).filter((f) => f.startsWith('data.broken_'));
+  t.eq(broken.length, 1, '坏文件应被改名隔离，保留 1 份证据');
+  t.includes(fs.readFileSync(h.path.join(h.backupDir(dataDir), broken[0]), 'utf8'), '这不是 JSON', '隔离出来的应是原始坏内容');
+
+  const now = JSON.parse(fs.readFileSync(h.dataFile(dataDir), 'utf8'));
+  t.eq(now.notes[0].text, '这是好数据', '主文件应被恢复后的内容覆盖');
+});
+
+t.test('全部备份也坏了时，继续往前找可用的那份', async () => {
+  await resetDir('corrupt-skip');
+  // 先做一份"第一版"的可用备份
+  await h.store.write(Object.assign(h.store.emptyState(), {
+    notes: [{ id: 'n_a', text: '第一版', done: false }],
+  }), 0);
+  await h.store.backupNow('good');
+
+  // 再改成"第二版"，并做一份更新的备份，然后把它弄坏
+  const rev = (await h.store.read()).revision;
+  await h.store.write(Object.assign(h.store.emptyState(), {
+    notes: [{ id: 'n_b', text: '第二版', done: false }],
+  }), rev);
+  await h.store.backupNow('newer');
+
+  const files = await h.listBackupFiles(dataDir);
+  const newest = files[files.length - 1];
+  t.includes(newest, 'newer', '最新那份应是刚做的 newer 备份');
+  const good = files.find((f) => f.includes('good'));
+  t.ok(good, '应存在更早的可用备份：' + files.join(', '));
+
+  await h.writeFileText(h.path.join(h.backupDir(dataDir), newest), 'broken backup');
+  await h.writeFileText(h.dataFile(dataDir), 'broken main');
+
+  const r = await h.store.read();
+  t.eq(r.recovered, true, '应恢复成功');
+  t.notEq(newest, r.recoveredFrom, '不应从坏掉的那份恢复');
+  t.eq(r.recoveredFrom, good, '应从更早的那份可用备份恢复');
+  t.eq(r.state.notes[0].text, '第一版', '应恢复到更早的可用备份');
+});
+
+t.test('没有任何备份可用时，坏文件也能让应用起来（回到空数据）', async () => {
+  await resetDir('corrupt-nobackup');
+  await h.writeFileText(h.dataFile(dataDir), 'not json at all');
+  const r = await h.store.read();
+  t.eq(r.recovered, true, '应标记为已恢复');
+  t.deepEq(r.state.tasks, [], '应回到空数据而不是崩溃');
+  t.ok(fs.existsSync(h.dataFile(dataDir)), '主文件应被重建');
+});
+
+t.test('主文件是合法 JSON 但不是对象时也按损坏处理', async () => {
+  await resetDir('corrupt-nonobject');
+  await h.writeFileText(h.dataFile(dataDir), '[1,2,3]');
+  const r = await h.store.read();
+  t.eq(r.recovered, true, '顶层是数组应视为损坏');
+  t.deepEq(r.state.tasks, [], '应回到空数据');
+});
+
+// ---------------- 冲突与导入 ----------------
+
+t.test('revision 冲突时拒绝写入（防止多窗口互相覆盖）', async () => {
+  await resetDir('conflict');
+  const out1 = await h.store.write(Object.assign(h.store.emptyState(), {
+    notes: [{ id: 'n_1', text: '窗口A的修改', done: false }],
+  }), 0);
+  t.eq(out1.ok, true, '第一次写入应成功');
+
+  const out2 = await h.store.write(Object.assign(h.store.emptyState(), {
+    notes: [{ id: 'n_2', text: '窗口B的修改', done: false }],
+  }), 0);
+  t.eq(out2.ok, false, '过期 revision 应被拒绝');
+  t.eq(out2.currentRevision, out1.revision, '应返回当前真实 revision');
+
+  const now = await h.store.read();
+  t.eq(now.state.notes[0].text, '窗口A的修改', 'B 的写入不应覆盖 A 的数据');
+});
+
+t.test('不带 baseRevision 时不参与冲突校验（服务端内部写入）', async () => {
+  await resetDir('nobase');
+  const a = await h.store.write(Object.assign(h.store.emptyState(), { notes: [] }), undefined);
+  const b = await h.store.write(Object.assign(h.store.emptyState(), { notes: [] }), undefined);
+  t.eq(a.ok, true, '第一次应成功');
+  t.eq(b.ok, true, '第二次也应成功');
+  t.eq(b.revision, a.revision + 1, 'revision 应继续递增');
+});
+
+t.test('同一秒内连续备份不会互相覆盖（回归）', async () => {
+  await resetDir('backup-unique');
+  await h.store.write(Object.assign(h.store.emptyState(), {
+    notes: [{ id: 'n_u1', text: '第一份', done: false }],
+  }), 0);
+
+  // 连续三次手动备份：文件名时间戳只精确到秒，必须靠序号区分
+  const a = await h.store.backupNow('dup');
+  const b = await h.store.backupNow('dup');
+  const c = await h.store.backupNow('dup');
+
+  t.notEq(a, b, '第一、二次备份不应是同一个文件');
+  t.notEq(b, c, '第二、三次备份不应是同一个文件');
+
+  const files = fs.readdirSync(h.backupDir(dataDir)).filter((f) => f.includes('dup'));
+  t.eq(files.length, 3, '三次备份应留下三个文件（实际 ' + files.length + '）');
+
+  // 每次备份都应是一份可用数据
+  for (const f of files) {
+    const parsed = JSON.parse(fs.readFileSync(h.path.join(h.backupDir(dataDir), f), 'utf8'));
+    t.eq(parsed.schemaVersion, 1, f + ' 应是一份可解析的备份');
+  }
+});
+
+t.test('导入备份：先留一份当前数据，再整体覆盖', async () => {
+  await resetDir('import');
+  await h.store.write(Object.assign(h.store.emptyState(), {
+    notes: [{ id: 'n_now', text: '当前数据', done: false }],
+  }), 0);
+
+  const incoming = h.store.emptyState();
+  incoming.notes = [{ id: 'n_old', text: '备份里的数据', done: false }];
+  incoming.tasks = [{ id: 't_old', title: '备份里的任务', module: 'dev', date: '2026-01-01', done: false }];
+
+  const out = await h.store.importState(incoming);
+  t.eq(out.ok, true, '导入应成功');
+  t.ok(out.preBackup, '应返回导入前的自动备份路径');
+
+  const now = await h.store.read();
+  t.eq(now.state.notes[0].text, '备份里的数据', '应被备份内容覆盖');
+  t.eq(now.state.tasks[0].title, '备份里的任务', '任务也应被覆盖');
+
+  const pre = fs.readdirSync(h.backupDir(dataDir)).filter((f) => f.includes('preimport'));
+  t.eq(pre.length, 1, '应留存 1 份导入前的数据，便于反悔');
+  t.includes(fs.readFileSync(h.path.join(h.backupDir(dataDir), pre[0]), 'utf8'), '当前数据', '导入前备份里应是原来的数据');
+});
+
+t.test('清空全部数据前会自动备份', async () => {
+  await resetDir('clear');
+  await h.store.write(Object.assign(h.store.emptyState(), {
+    notes: [{ id: 'n_x', text: '要清掉的数据', done: false }],
+  }), 0);
+
+  await h.store.clearAll();
+
+  const now = await h.store.read();
+  t.deepEq(now.state.notes, [], '清空后不应有数据');
+  const pre = fs.readdirSync(h.backupDir(dataDir)).filter((f) => f.includes('preimport'));
+  t.ok(pre.length >= 1, '清空前应已自动备份');
+  t.includes(fs.readFileSync(h.path.join(h.backupDir(dataDir), pre[0]), 'utf8'), '要清掉的数据', '清空前的备份里应还有数据');
+});
+
+// ---------------- HTTP 接口层 ----------------
+
+t.test('GET /api/state 返回完整结构', async () => {
+  await resetDir('api-state');
+  const r = await h.req(server.port, 'GET', '/api/state');
+  t.eq(r.status, 200, '状态码');
+  t.ok(r.json.state && typeof r.json.state === 'object', '应返回 state');
+  t.eq(typeof r.json.revision, 'number', '应返回 revision');
+  t.includes(r.json.path, 'data.json', '应返回文件路径');
+  t.eq(typeof r.json.sizeKB, 'number', '应返回 sizeKB');
+  t.eq(r.json.recovered, false, '正常情况 recovered 为 false');
+});
+
+t.test('PUT /api/state 正常保存并返回新 revision', async () => {
+  await resetDir('api-put');
+  const cur = await h.readState(server.port);
+  const state = cur.state;
+  state.tasks.push({ id: 't_api', title: '接口写入的任务', module: 'dev', date: '2026-10-08', done: false, priority: 'normal', note: '' });
+
+  const r = await h.req(server.port, 'PUT', '/api/state', { state, baseRevision: cur.revision });
+  t.eq(r.status, 200, '状态码');
+  t.eq(r.json.ok, true, 'ok');
+  t.eq(r.json.revision, cur.revision + 1, 'revision 应自增');
+
+  const back = await h.readState(server.port);
+  t.eq(back.state.tasks[0].title, '接口写入的任务', '数据应已保存');
+});
+
+t.test('PUT /api/state 的 revision 过期时返回 409 且不覆盖', async () => {
+  await resetDir('api-conflict');
+  const cur = await h.readState(server.port);
+
+  const s1 = JSON.parse(JSON.stringify(cur.state));
+  s1.notes.push({ id: 'n_a', text: 'A 写的', done: false });
+  const okRes = await h.req(server.port, 'PUT', '/api/state', { state: s1, baseRevision: cur.revision });
+  t.eq(okRes.status, 200, 'A 应写入成功');
+
+  const s2 = JSON.parse(JSON.stringify(cur.state));
+  s2.notes.push({ id: 'n_b', text: 'B 写的', done: false });
+  const conflict = await h.req(server.port, 'PUT', '/api/state', { state: s2, baseRevision: cur.revision });
+  t.eq(conflict.status, 409, 'B 应收到 409');
+  t.eq(conflict.json.code, 'REVISION_CONFLICT', '错误码');
+  t.eq(conflict.json.currentRevision, okRes.json.revision, '应返回当前 revision');
+
+  const back = await h.readState(server.port);
+  t.deepEq(back.state.notes.map((n) => n.text), ['A 写的'], 'B 的内容不应写入');
+});
+
+t.test('PUT /api/state 参数非法时返回 400', async () => {
+  await resetDir('api-badput');
+  const noState = await h.req(server.port, 'PUT', '/api/state', { baseRevision: 0 });
+  t.eq(noState.status, 400, '缺少 state 应 400');
+  t.eq(noState.json.code, 'BAD_PAYLOAD', '错误码 BAD_PAYLOAD');
+
+  const badJson = await h.req(server.port, 'PUT', '/api/state', '{not json', { 'Content-Type': 'application/json' });
+  t.eq(badJson.status, 400, '非法 JSON 应 400');
+  t.eq(badJson.json.code, 'BAD_JSON', '错误码 BAD_JSON');
+});
+
+t.test('请求体超过 20MB 上限返回 413', async () => {
+  await resetDir('api-large');
+  const huge = { state: { tasks: [{ id: 't', title: 'x'.repeat(21 * 1024 * 1024) }] }, baseRevision: 0 };
+  const r = await h.req(server.port, 'PUT', '/api/state', huge);
+  t.eq(r.status, 413, '应返回 413（实际 ' + r.status + '）');
+
+  // 超限后服务仍应正常工作，数据不该被写坏
+  const after = await h.req(server.port, 'GET', '/api/state');
+  t.eq(after.status, 200, '超限请求后服务仍应可用');
+  t.deepEq(after.json.state.tasks, [], '超限请求不应写入任何数据');
+});
+
+t.test('用 chunked 绕过 Content-Length 也拦得住', async () => {
+  await resetDir('api-large-chunked');
+  const http = require('node:http');
+  const port = server.port;
+
+  // 记录测试期间进程级兜底捕获到的异常，用完后还原
+  const caught = [];
+  const prevUncaught = process.listeners('uncaughtException');
+  for (const l of prevUncaught) process.removeListener('uncaughtException', l);
+  const collector = (err) => caught.push(err);
+  process.on('uncaughtException', collector);
+
+  const status = await new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+
+    const r = http.request(
+      {
+        host: '127.0.0.1',
+        port,
+        path: '/api/state',
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Transfer-Encoding': 'chunked' },
+      },
+      (res) => { res.resume(); finish(res.statusCode); }
+    );
+    r.on('error', (err) => finish(err.code === 'ECONNRESET' ? 413 : 0));
+    r.on('socket', (socket) => {
+      socket.on('error', (err) => finish(err.code === 'ECONNRESET' ? 413 : 0));
+    });
+
+    // 不发 Content-Length，靠分块持续发送，累计超过 20MB
+    const chunk = Buffer.alloc(1024 * 1024, 0x78);
+    for (let i = 0; i < 21; i++) {
+      if (done) break;
+      r.write(chunk);
+    }
+    r.end();
+  });
+
+  await h.sleep(250);
+  process.removeListener('uncaughtException', collector);
+  for (const l of prevUncaught) process.on('uncaughtException', l);
+
+  t.ok(caught.length <= 2, '断线噪音不应刷屏（实际捕获 ' + caught.length + ' 条）');
+  t.eq(status, 413, 'chunked 超限也应被拦下（实际 ' + status + '）');
+
+  const after = await h.req(port, 'GET', '/api/state');
+  t.eq(after.status, 200, '服务仍应可用');
+  t.deepEq(after.json.state.tasks, [], '不应写入任何数据');
+});
+
+t.test('POST /api/import 校验备份文件合法性', async () => {
+  await resetDir('api-import');
+
+  const notJson = await h.req(server.port, 'POST', '/api/import', 'hello', { 'Content-Type': 'application/json' });
+  t.eq(notJson.status, 400, '非 JSON 应 400');
+  t.eq(notJson.json.code, 'BAD_JSON', '错误码 BAD_JSON');
+
+  const alien = await h.req(server.port, 'POST', '/api/import', { hello: 'world' });
+  t.eq(alien.status, 400, '无关对象应 400');
+  t.eq(alien.json.code, 'NOT_A_BACKUP', '错误码 NOT_A_BACKUP');
+
+  const good = h.store.emptyState();
+  good.notes = [{ id: 'n_imp', text: '从备份恢复', done: false }];
+  const okRes = await h.req(server.port, 'POST', '/api/import', good);
+  t.eq(okRes.status, 200, '合法备份应 200');
+  t.eq(okRes.json.ok, true, 'ok');
+  t.ok(okRes.json.preBackup, '应返回导入前备份路径');
+
+  const back = await h.readState(server.port);
+  t.eq(back.state.notes[0].text, '从备份恢复', '数据应已恢复');
+});
+
+t.test('GET /api/export 返回可下载的备份文件', async () => {
+  await resetDir('api-export');
+  await h.mutate(server.port, (s) => { s.notes.push({ id: 'n_exp', text: '要导出的内容', done: false }); });
+
+  const r = await h.req(server.port, 'GET', '/api/export');
+  t.eq(r.status, 200, '状态码');
+  t.includes(String(r.headers['content-disposition']), 'attachment', '应作为附件下载');
+  t.includes(String(r.headers['content-disposition']), '.json', '文件名应是 json');
+  const parsed = JSON.parse(r.raw);
+  t.eq(parsed.notes[0].text, '要导出的内容', '导出内容应包含数据');
+  t.ok(Array.isArray(parsed.tasks), '导出应是完整数据结构');
+});
+
+t.test('GET /api/health 会统计各类数据条数', async () => {
+  await resetDir('api-health');
+  await h.mutate(server.port, (s) => {
+    s.tasks.push({ id: 't1', title: '任务一', module: 'dev', date: '2026-10-08', done: false });
+    s.tasks.push({ id: 't2', title: '任务二', module: 'media', date: '2026-10-08', done: true });
+    s.notes.push({ id: 'n1', text: '备忘', done: false });
+    s.media.push({ id: 'm1', title: '选题', platform: '公众号', status: 'idea' });
+    s.devIdeas.push({ id: 'i1', text: '灵感', handled: false });
+    s.diet.recipes.push({ id: 'rc1', name: '番茄牛腩', note: '' });
+    s.diet.shopping.push({ id: 's1', name: '牛腩', bought: false });
+    s.games.push({ id: 'g1', name: '塞尔达', platform: 'Switch', status: 'playing' });
+    s.fitness.records['2026-10-08'] = { label: '胸+三头', exercises: {}, finished: true };
+  });
+
+  const r = await h.req(server.port, 'GET', '/api/health');
+  t.eq(r.status, 200, '状态码');
+  t.eq(r.json.stats['任务'], 2, '任务数');
+  t.eq(r.json.stats['备忘'], 1, '备忘数');
+  t.eq(r.json.stats['自媒体'], 1, '自媒体数');
+  t.eq(r.json.stats['灵感'], 1, '灵感数');
+  t.eq(r.json.stats['菜谱'], 1, '菜谱数');
+  t.eq(r.json.stats['采买'], 1, '采买数');
+  t.eq(r.json.stats['游戏'], 1, '游戏数');
+  t.eq(r.json.stats['健身记录'], 1, '健身记录数');
+});
+
+// ---------------- 组卷：先起服务，再跑全部用例 ----------------
+
+(async () => {
+  dataDir = await h.useDataDir(await h.makeTmpDir('p2'));
+  server = await h.startServer({ port: h.TEST_PORT_BASE, dataDir });
+  try {
+    await t.run();
+  } finally {
+    await server.stop();
+  }
+})();

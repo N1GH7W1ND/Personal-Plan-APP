@@ -1,0 +1,21 @@
+{
+  "name": "workbench",
+  "version": "0.1.0",
+  "private": true,
+  "description": "个人工作生活 App（本地运行，数据存本机文件）",
+  "author": "夜少",
+  "license": "UNLICENSED",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node test/run-all.js",
+    "test:phase1": "node test/phase1.js",
+    "test:phase2": "node test/phase2.js",
+    "test:frontend": "node test/run-frontend.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}
