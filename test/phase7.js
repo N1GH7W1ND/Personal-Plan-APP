@@ -313,19 +313,47 @@ t.test('200 条任务时读写仍然正常（不卡死、不丢数据）', async
 
 /* ---------------- 覆盖结论 ---------------- */
 
-t.test('PRD 第 10 节的验收标准条目齐全（A8 + B8 + C15 + E6 + F7 + G5）', async () => {
+t.test('PRD 第 10 节的验收标准条目齐全（原 49 条 + 范围调整后新增）', async () => {
   const prd = read('PRD.md');
+  t.includes(prd, '可实际检查的验收标准', 'PRD 应保留验收标准章节');
+  t.includes(prd, '范围变更记录', 'PRD 应记录范围变更（R1–R9）');
 
+  // 原有分组：括号里的数字是分组原始的条目数（不因作废而改变编号连续性）
   const groups = { A: 8, B: 8, C: 15, E: 6, F: 7, G: 5 };
-  let total = 0;
   for (const [prefix, count] of Object.entries(groups)) {
     for (let i = 1; i <= count; i++) {
-      t.includes(prd, '| ' + prefix + i + ' |', 'PRD 应含验收项 ' + prefix + i);
+      const id = prefix + i;
+      // 条目要么是"有效"形式，要么是"已作废"形式（删除线 + 作废说明），二者必须有其一
+      const active = prd.includes('| ' + id + ' |');
+      const retired = prd.includes('| ~~' + id + '~~ |');
+      t.ok(active || retired, 'PRD 应含验收项 ' + id + '（有效或标注作废）');
     }
-    total += count;
   }
-  t.eq(total, 49, '验收项总数（按 PRD 分组累加）');
-  t.includes(prd, '可实际检查的验收标准', 'PRD 应保留验收标准章节');
+
+  // 已移除模块对应的验收项必须明确标注作废，不能含糊
+  for (const id of ['C1', 'C2', 'C3', 'C6', 'C7', 'C14', 'C15']) {
+    t.includes(prd, '| ~~' + id + '~~ |', '已移除模块的验收项 ' + id + ' 应标注作废');
+  }
+  // 仍然有效的分模块条目不能被误删
+  for (const id of ['C4', 'C5', 'C8', 'C9', 'C10', 'C11', 'C12', 'C13']) {
+    t.includes(prd, '| ' + id + ' |', '仍然有效的验收项 ' + id + ' 应保留');
+    t.notIncludes(prd, '| ~~' + id + '~~ |', '仍然有效的验收项 ' + id + ' 不应被标为作废');
+  }
+
+  // 范围调整后新增的验收标准（R1–R8）应齐全
+  t.includes(prd, '### 10.7 范围调整后新增的验收标准', 'PRD 应有新增验收标准章节');
+  for (const id of ['R1.1', 'R1.2', 'R1.3', 'R1.4',
+    'R4.1', 'R4.2', 'R4.3', 'R4.4',
+    'R5.1', 'R5.2', 'R5.3', 'R5.4',
+    'R6.1', 'R6.2', 'R6.3', 'R6.4', 'R6.5', 'R6.6',
+    'R7.1', 'R7.2', 'R7.3', 'R7.4', 'R7.5', 'R7.6', 'R7.7',
+    'R8.1', 'R8.2', 'R8.3', 'R8.4']) {
+    t.includes(prd, '| ' + id + ' |', 'PRD 应含新增验收项 ' + id);
+  }
+
+  // 导航入口数与模块数应与代码一致（文档不能与实现脱节）
+  t.includes(prd, '**7 个**导航入口', 'PRD 应写明当前是 7 个导航入口');
+  t.includes(prd, '任务可归属 5 个', 'PRD 应写明任务可归属 5 个模块');
 });
 
 t.run();
