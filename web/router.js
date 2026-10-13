@@ -38,6 +38,28 @@ export function routeName(id) {
 }
 
 /**
+ * 判断"用户此刻是不是在输入"。
+ *
+ * 不能只看事件目标：真实浏览器里键盘事件的 target 一般是聚焦的元素，
+ * 但一旦出现焦点与目标不一致的情况（例如焦点其实在输入框里），
+ * 只认 target 就会把用户的数字当成快捷键，抢掉输入。
+ * 所以这里以 document.activeElement（当前焦点）为准，事件目标作为补充。
+ */
+function isTypingTarget(el) {
+  if (!el) return false;
+  const tag = el.tagName ? String(el.tagName).toLowerCase() : '';
+  return tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable === true;
+}
+
+function isUserTyping(ev) {
+  if (isTypingTarget(ev && ev.target)) return true;
+  if (typeof document !== 'undefined' && document.activeElement) {
+    return isTypingTarget(document.activeElement);
+  }
+  return false;
+}
+
+/**
  * 跳转（会写入地址栏，可被收藏/刷新）。
  * 地址栏写入失败时（例如不在浏览器环境）也必须保证界面切过去，不能用静默失败糊弄。
  */
@@ -86,10 +108,8 @@ export function start(handler) {
 
   onKey = (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    const t = e.target;
-    const tag = t && t.tagName ? t.tagName.toLowerCase() : '';
-    const typing = tag === 'input' || tag === 'textarea' || tag === 'select' || (t && t.isContentEditable);
-    if (typing) return;
+    // 正在输入时，数字键属于用户，不是快捷键
+    if (isUserTyping(e)) return;
 
     if (e.key >= '1' && e.key <= '9') {
       const idx = Number(e.key) - 1;

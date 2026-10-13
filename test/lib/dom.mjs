@@ -87,6 +87,15 @@ class Element {
     const parsed = parseHtml(this._innerHTML);
     this.children = parsed;
     for (const c of parsed) c.parentNode = this;
+    // 新解析出来的元素也要挂上 ownerDocument：
+    // focus() 依赖它去更新 document.activeElement。
+    if (this.ownerDocument) {
+      const tagAll = (node) => {
+        node.ownerDocument = this.ownerDocument;
+        for (const c of node.children || []) tagAll(c);
+      };
+      for (const c of parsed) tagAll(c);
+    }
     this._text = '';
   }
 
@@ -190,8 +199,26 @@ class Element {
   }
 
   scrollIntoView() { /* 测试环境无需滚动 */ }
-  focus() { this._focused = true; }
-  blur() { this._focused = false; }
+
+  /**
+   * 聚焦：同时更新 document.activeElement。
+   * 真实浏览器里"当前焦点"决定键盘事件的目标，我们的快捷键判断依赖这一点。
+   */
+  focus() {
+    this._focused = true;
+    const doc = this.ownerDocument;
+    if (doc) {
+      const prev = doc.activeElement;
+      if (prev && prev !== this) prev._focused = false;
+      doc.activeElement = this;
+    }
+  }
+
+  blur() {
+    this._focused = false;
+    const doc = this.ownerDocument;
+    if (doc && doc.activeElement === this) doc.activeElement = null;
+  }
 }
 
 /* ---------------- HTML 解析（子集） ---------------- */
@@ -334,6 +361,10 @@ export function createDocument(html) {
   doc.body = new Element('body');
   doc.body.parentNode = doc;
 
+  // activeElement：真实浏览器用它表示"当前聚焦的元素"。
+  // 我们的代码要靠它判断"用户是不是正在输入"，所以桩里必须如实维护。
+  doc.activeElement = null;
+
   const roots = parseHtml(html || '');
   for (const r of roots) {
     r.parentNode = doc.body;
@@ -342,12 +373,28 @@ export function createDocument(html) {
   doc.body._innerHTML = html || '';
 
   doc.getElementById = (id) => querySelectorAll(doc.body, '#' + id)[0] || null;
-  doc.createElement = (tag) => new Element(tag);
+  doc.createElement = (tag) => {
+    const el = new Element(tag);
+    el.ownerDocument = doc;
+    return el;
+  };
   doc.querySelector = (sel) => querySelectorAll(doc.body, sel)[0] || null;
   doc.querySelectorAll = (sel) => querySelectorAll(doc.body, sel);
   doc.hidden = false;
   doc.addEventListener = () => {};
   doc.removeEventListener = () => {};
+
+  // 给树上的每个元素都挂上 ownerDocument，这样 focus() 能找到 activeElement
+  (function tagOwner(node) {
+    node.ownerDocument = doc;
+    for (const c of node.children || []) tagOwner(c);
+  })(doc.body);
+  doc.ownerDocument = doc;
+
+  // 让 focus()/blur() 真正更新 document.activeElement
+  doc.body.focus = () => { doc.activeElement = doc.body; };
+  doc.body.ownerDocument = doc;
+
   return doc;
 }
 

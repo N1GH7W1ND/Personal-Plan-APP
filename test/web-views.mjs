@@ -101,6 +101,55 @@ function assertNoViewError() {
   }
 }
 
+test('数字键 1–6 能切换页面；但正在输入时不该被当成快捷键（回归）', async () => {
+  const navIds = logic.NAV_ITEMS.map((n) => n.id);
+  eq(navIds.length, 6, '当前应是 6 个导航入口');
+
+  // ---- 一：没有在输入时，数字键应当切换页面 ----
+  for (let i = 0; i < navIds.length; i++) {
+    dom.document.body.focus(); // 焦点不在任何输入框
+    dom.fireKey(String(i + 1)); // 事件目标默认是 body
+    await waitRender();
+    eq(router.currentRoute(), navIds[i], '按 ' + (i + 1) + ' 应切到 ' + navIds[i]);
+  }
+
+  // ---- 二：回归——焦点在输入框里时，数字键属于用户，不能抢去切页面 ----
+  // 复现用户报的问题：手动按 1 回到首页后，输入框自动获得焦点，
+  // 此时再按数字键，应该落进输入框，而不是把页面切走。
+  dom.document.body.focus();
+  dom.fireKey('1');
+  await waitRender();
+  eq(router.currentRoute(), 'home', '按 1 应回到首页总览');
+
+  const quickInput = view().querySelector('[data-field="quick-title"]');
+  ok(quickInput, '首页应有「快速补一条」输入框');
+  eq(dom.document.activeElement, quickInput, '进首页后输入框应自动获得焦点');
+
+  // 模拟"用户在输入框里按下 3"：事件目标是输入框
+  quickInput.fire('keydown', { key: '3' });
+  await waitRender();
+  eq(router.currentRoute(), 'home', '正在输入时按数字键不该切换页面');
+  eq(quickInput.value, '', '守卫不该往输入框里写东西（值仍由用户输入决定）');
+
+  // 焦点还在输入框上，但这次事件目标是 body（浏览器异常情况）——同样不该切页
+  quickInput._focused = true;
+  dom.document.activeElement = quickInput;
+  dom.fireKey('5');
+  await waitRender();
+  eq(router.currentRoute(), 'home', '只要焦点在输入框里，即使事件目标不是它，也不该切换');
+
+  // ---- 三：焦点移开后，数字键恢复切换 ----
+  // 相当于用户点了页面空白处，焦点离开输入框
+  dom.document.body.focus();
+  eq(dom.document.activeElement, dom.document.body, '焦点应已离开输入框');
+  dom.fireKey('4');
+  await waitRender();
+  eq(router.currentRoute(), 'study', '焦点移开后按 4 应切到学习');
+
+  // 收尾：把界面带回首页，后面的用例默认从首页开始
+  await go('home');
+});
+
 /* ---------------- 用例 ---------------- */
 
 test('首页渲染出今日计划、快速补一条、快速备忘三个区块', () => {
