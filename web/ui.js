@@ -460,7 +460,158 @@ export function summaryList(items) {
     '</div></div>').join('');
 }
 
-/* ---------------- 任务操作弹窗 ---------------- */
+/* ---------------- 日历（各模块共用） ---------------- */
+
+/**
+ * 模块日历的界面状态（不落盘）。
+ * 每个模块各记一份，切模块回来时还停在你上次看的月份。
+ */
+const calState = {};
+
+export function getCalState(moduleId) {
+  if (!calState[moduleId]) calState[moduleId] = { year: null, month: null, selected: null };
+  return calState[moduleId];
+}
+
+export function setCalMonth(moduleId, year, month) {
+  const s = getCalState(moduleId);
+  s.year = year;
+  s.month = month;
+}
+
+export function setCalSelected(moduleId, day) {
+  getCalState(moduleId).selected = day || null;
+}
+
+/** 清空所有模块的日历界面状态（测试与"回到初始"用） */
+export function clearCalendarState() {
+  for (const k of Object.keys(calState)) delete calState[k];
+}
+
+/** 该模块日历当前显示的年月（未初始化时按今天算） */
+export function currentCalMonth(moduleId, today) {
+  const s = getCalState(moduleId);
+  if (s.year == null) {
+    const d = date.parseDateStr(today || date.todayStr());
+    return { year: d.getFullYear(), month: d.getMonth() + 1 };
+  }
+  return { year: s.year, month: s.month };
+}
+
+/**
+ * 渲染一个模块的月历。
+ * @param {object} opts
+ *   - moduleId  模块 id（'all' 表示首页汇总）
+ *   - state     当前数据
+ *   - today     今天
+ *   - marks     该月每日标记（logic.calendarMarks 的返回值）
+ *   - dayPanel  选中某天时下方要显示的内容（HTML 字符串）
+ *   - subtitle  日历下方的一句说明
+ */
+export function moduleCalendar(opts) {
+  const o = opts || {};
+  const s = getCalState(o.moduleId);
+  const today = o.today || date.todayStr();
+  const now = date.parseDateStr(today);
+  if (s.year == null) {
+    s.year = now.getFullYear();
+    s.month = now.getMonth() + 1;
+  }
+
+  const g = date.monthGrid(s.year, s.month);
+  const marks = o.marks || {};
+  const cells = [];
+
+  for (let i = 0; i < g.leadingBlanks; i++) cells.push('<div class="cal-cell blank"></div>');
+
+  for (let d = 1; d <= g.daysInMonth; d++) {
+    const day = date.monthDay(s.year, s.month, d);
+    const m = marks[day];
+    const total = m ? m.total : 0;
+    const done = m ? m.done : 0;
+    const allDone = total > 0 && done === total;
+    const cls = ['cal-cell'];
+    if (day === today) cls.push('today');
+    if (day === s.selected) cls.push('selected');
+    if (total || (m && m.extra)) cls.push('has');
+    if (allDone) cls.push('alldone');
+
+    cells.push('<div class="' + cls.join(' ') + '" data-act="cal-pick" data-day="' + day + '"' +
+      ' title="' + escapeHtml(day + (total ? '：' + total + ' 条任务，完成 ' + done + ' 条' : '')) + '">' +
+      '<div class="cal-daynum">' + d + '</div>' +
+      (total ? '<div class="cal-dots">' + Array.from({ length: Math.min(total, 4) },
+        (_, i2) => '<span class="cal-dot' + (i2 < done ? ' done' : '') + '"></span>').join('') + '</div>' : '') +
+      (m && m.extra ? '<div class="cal-extra">' + escapeHtml(m.extra) + '</div>' : '') +
+      '</div>');
+  }
+
+  const selectedPanel = s.selected
+    ? '<div class="cal-panel" data-panel="' + escapeHtml(s.selected) + '">' +
+      '<div class="cal-panel-head">' + escapeHtml(date.fmtDateCn(s.selected)) +
+      (marks[s.selected] && marks[s.selected].extra
+        ? ' <span class="tag">' + escapeHtml(marks[s.selected].extra) + '</span>' : '') +
+      '</div>' + (o.dayPanel || '') + '</div>'
+    : '<div class="cal-panel muted">点日历上任意一天，看那天具体做了什么</div>';
+
+  return '<div class="cal-wrap">' +
+    '<div class="cal-toolbar">' +
+    btn('◀', { act: 'cal-prev' }, 'btn-sm', '上一月') +
+    '<span class="cal-month">' + escapeHtml(g.monthLabel) + '</span>' +
+    btn('▶', { act: 'cal-next' }, 'btn-sm', '下一月') +
+    btn('回到本月', { act: 'cal-today' }, 'btn-sm') +
+    '<span class="spacer"></span>' +
+    '<span class="muted small">' + escapeHtml(o.subtitle || '有内容的日子会标出来') + '</span>' +
+    '</div>' +
+    '<div class="cal-head">' + date.WEEK_CN.map((w) => '<div>' + w + '</div>').join('') + '</div>' +
+    '<div class="cal-grid">' + cells.join('') + '</div>' +
+    selectedPanel +
+    '</div>';
+}
+
+/**
+ * 处理日历上的点击（各模块视图统一调用）。
+ * @returns {boolean} 是否已被日历处理
+ */
+export function handleCalendarClick(act, ev, moduleId, today, rerender) {
+  const type = act.getAttribute('data-act');
+  if (type !== 'cal-pick' && type !== 'cal-prev' && type !== 'cal-next' && type !== 'cal-today') {
+    return false;
+  }
+  const s = getCalState(moduleId);
+  const now = date.parseDateStr(today || date.todayStr());
+
+  if (type === 'cal-pick') {
+    const day = act.getAttribute('data-day');
+    s.selected = s.selected === day ? null : day;
+    if (rerender) rerender();
+    return true;
+  }
+
+  if (type === 'cal-today') {
+    s.year = now.getFullYear();
+    s.month = now.getMonth() + 1;
+    if (rerender) rerender();
+    return true;
+  }
+
+  let m = s.month + (type === 'cal-next' ? 1 : -1);
+  let y = s.year;
+  if (m < 1) { m = 12; y -= 1; }
+  if (m > 12) { m = 1; y += 1; }
+  s.year = y;
+  s.month = m;
+  if (rerender) rerender();
+  return true;
+}
+
+/** 选中某天时，把那天该模块的任务列成清单（日历下方用） */
+export function calendarDayTasks(state, moduleId, day, today) {
+  const list = state.tasks.filter((t) => t.date === day && (moduleId === 'all' || t.module === moduleId));
+  if (!list.length) {
+    return '<div class="muted small" style="padding:6px 2px">这天没有安排</div>';
+  }
+  return '<div class="list">' + list.map((t) => taskRow(t, { today })).join('') + '</div>';
+}
 
 /** 生成"选日期"的一排快捷按钮 */
 export function dateChips(selected, today) {
@@ -476,6 +627,8 @@ export function dateChips(selected, today) {
     '" data-act="pick-date" data-date="' + escapeHtml(o.value) + '">' + escapeHtml(o.label) + '</button>').join('') +
     '</div>';
 }
+
+/* ---------------- 任务操作弹窗 ---------------- */
 
 /**
  * 任务操作菜单。

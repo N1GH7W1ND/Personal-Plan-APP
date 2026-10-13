@@ -548,6 +548,112 @@ a { color: var(--primary); text-decoration: none; }
   color: var(--text-3);
 }
 
+/* ---------------- 日历（各模块共用） ---------------- */
+
+.cal-wrap { --cal-cell-h: 56px; }
+
+.cal-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.cal-month {
+  font-size: 14px;
+  font-weight: 700;
+  min-width: 92px;
+  text-align: center;
+}
+
+.cal-head {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+  margin-bottom: 5px;
+}
+
+.cal-head div {
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--text-3);
+  padding: 2px 0;
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+}
+
+.cal-cell {
+  min-height: var(--cal-cell-h);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 4px 5px 3px;
+  background: #fff;
+  cursor: pointer;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  transition: border-color .12s, box-shadow .12s;
+}
+
+.cal-cell:hover { border-color: var(--primary); }
+.cal-cell.blank { border-color: transparent; background: transparent; cursor: default; }
+
+.cal-cell.today { border-color: var(--primary); background: var(--primary-weak); }
+.cal-cell.selected { box-shadow: 0 0 0 2px var(--primary) inset; }
+.cal-cell.alldone { background: var(--ok-weak); border-color: #a9dcc0; }
+
+.cal-daynum {
+  font-size: 12px;
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.cal-cell.today .cal-daynum { color: var(--primary); }
+
+.cal-dots {
+  display: flex;
+  gap: 3px;
+  flex-wrap: wrap;
+}
+
+.cal-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--line-strong);
+}
+
+.cal-dot.done { background: var(--ok); }
+
+.cal-extra {
+  font-size: 10.5px;
+  color: var(--text-3);
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cal-panel {
+  margin-top: 12px;
+  border-top: 1px dashed var(--line);
+  padding-top: 10px;
+}
+
+.cal-panel-head {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* ---------------- 看板 ---------------- */
 
 .board-col {
@@ -634,67 +740,6 @@ a { color: var(--primary); text-decoration: none; }
 
 .icon-btn:hover:not(:disabled) { background: #f2f5fa; border-color: var(--primary); color: var(--primary); }
 .icon-btn:disabled { opacity: .32; cursor: not-allowed; }
-
-/* ---------------- 日历 ---------------- */
-
-.cal-head {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
-  margin-bottom: 4px;
-}
-
-.cal-head div {
-  text-align: center;
-  font-size: 11.5px;
-  color: var(--text-3);
-  padding: 3px 0;
-}
-
-.cal-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 4px;
-}
-
-.cal-cell {
-  min-height: 54px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  padding: 4px 5px;
-  font-size: 12px;
-  background: #fff;
-  cursor: pointer;
-  position: relative;
-}
-
-.cal-cell:hover { border-color: var(--primary); }
-.cal-cell.blank { background: transparent; border-color: transparent; cursor: default; }
-.cal-cell.today { border-color: var(--primary); background: var(--primary-weak); }
-.cal-cell.selected { box-shadow: 0 0 0 2px var(--primary) inset; }
-
-.cal-day { color: var(--text-3); font-size: 11px; }
-
-.cal-marks {
-  display: flex;
-  gap: 3px;
-  flex-wrap: wrap;
-  margin-top: 3px;
-}
-
-.cal-mark {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: var(--m-study);
-}
-
-.cal-count {
-  position: absolute;
-  right: 4px;
-  bottom: 3px;
-  font-size: 10.5px;
-  color: var(--text-3);
-}
 
 /* ---------------- 分组打卡格 ---------------- */
 

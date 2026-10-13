@@ -48,6 +48,7 @@ const store = await import('../web/store.js');
 const logic = await import('../web/logic.js');
 const date = await import('../web/date.js');
 const router = await import('../web/router.js');
+const ui = await import('../web/ui.js');
 
 setFile('阶段5 功能模块');
 
@@ -69,6 +70,7 @@ async function go(route) {
 /** 清空数据并从干净状态开始某个用例 */
 async function reset() {
   await store.clearAll();
+  ui.clearCalendarState(); // 日历的月份与选中日期也要复位，避免用例之间互相影响
   dom.navigate('home');
   await waitRender();
   assertNoViewError();
@@ -591,6 +593,108 @@ test('已移除的模块：导航里进不去，旧路由会回落首页', async
   await go('media');
   ok(view().innerHTML.length > 0, '打开旧路由不应白屏');
   ok(view().innerHTML.includes('今日计划'), '应渲染首页内容');
+});
+
+test('每个模块都有日历：开发/学习/健身/饮食/今日计划', async () => {
+  const pages = [
+    { route: 'dev', title: '开发日历' },
+    { route: 'study', title: '学习日历' },
+    { route: 'fitness', title: '训练日历' },
+    { route: 'diet', title: '饮食日历' },
+    { route: 'today', title: '任务日历' },
+  ];
+
+  for (const p of pages) {
+    await go(p.route);
+    const html = view().innerHTML;
+    ok(html.includes(p.title), p.route + ' 页应有「' + p.title + '」');
+    ok(html.includes('cal-grid'), p.route + ' 页应有日历网格');
+    ok(html.includes('cal-pick'), p.route + ' 页的日期应可点击');
+    eq(findByAct(view(), 'cal-prev').length, 1, p.route + ' 应有上一月按钮');
+    eq(findByAct(view(), 'cal-next').length, 1, p.route + ' 应有下一月按钮');
+    eq(findByAct(view(), 'cal-today').length, 1, p.route + ' 应有回到本月按钮');
+  }
+});
+
+test('日历：日期格显示当月天数与星期表头（以 2026-10 为例）', async () => {
+  await reset();
+  await go('today');
+
+  // 用"下一月/上一月"按钮走到 2026 年 10 月
+  let guard = 0;
+  while (guard++ < 40) {
+    const cur = ui.currentCalMonth('all', date.todayStr());
+    if (cur.year === 2026 && cur.month === 10) break;
+    const forward = (cur.year * 12 + cur.month) < (2026 * 12 + 10);
+    const btn = findByAct(view(), forward ? 'cal-next' : 'cal-prev')[0];
+    btn.click();
+    await waitRender();
+  }
+  const cur2 = ui.currentCalMonth('all', date.todayStr());
+  eq(cur2.year, 2026, '应走到 2026 年');
+  eq(cur2.month, 10, '应走到 10 月');
+  ok(view().innerHTML.includes('2026年10月'), '应显示月份标题');
+
+  const cells = view().querySelectorAll('.cal-cell');
+  const blanks = cells.filter((c) => c.classList.contains('blank'));
+  eq(blanks.length, 3, '10 月 1 日是周四，前面应有 3 个空白格');
+
+  const days = cells.filter((c) => !c.classList.contains('blank'));
+  eq(days.length, 31, '10 月应有 31 个日期格');
+
+  const weekHead = view().querySelector('.cal-head');
+  ok(weekHead, '应有星期表头容器');
+  eq(weekHead.querySelectorAll('div').length, 7, '星期表头应有 7 个格子');
+  ok(weekHead.textContent.includes('一'), '应有"一"');
+  ok(weekHead.textContent.includes('日'), '应有"日"');
+});
+
+test('日历：点某天会展开那天的明细，再点收起', async () => {
+  await reset();
+  const today = date.todayStr();
+  store.dispatch((s) => logic.addTask(s, { title: '日历里的任务', module: 'dev', date: today }));
+  await go('dev');
+  await waitRender();
+
+  // 用日历自己的明细面板是否存在来判断展开状态
+  // （页面别处也会显示这条任务，不能拿整页文本判断）
+  notOk(view().querySelector('[data-panel]'), '未选日期时不应有明细面板');
+
+  const cellOf = () => findByAct(view(), 'cal-pick').find((el) => el.getAttribute('data-day') === today);
+  ok(cellOf(), '应能找到今天那一格');
+  eq(cellOf().classList.contains('has'), true, '有内容的日子应带上标记类');
+  cellOf().click();
+  await waitRender();
+
+  eq(cellOf().classList.contains('selected'), true, '应标记为选中');
+  const panel = view().querySelector('[data-panel]');
+  ok(panel, '应展开那天的明细面板');
+  eq(panel.getAttribute('data-panel'), today, '面板应对应选中的日期');
+  ok(panel.textContent.includes('日历里的任务'), '面板里应列出那天的任务');
+
+  cellOf().click();
+  await waitRender();
+  notOk(view().querySelector('[data-panel]'), '再点应收起明细面板');
+});
+
+test('日历：各模块月份互不干扰，且能一键回到本月', async () => {
+  await reset();
+  const today = date.todayStr();
+  const now = date.parseDateStr(today);
+  const nextMonth = now.getMonth() + 1 === 12 ? 1 : now.getMonth() + 2;
+
+  await go('dev');
+  findByAct(view(), 'cal-next')[0].click();
+  await waitRender();
+  eq(ui.currentCalMonth('dev', today).month, nextMonth, 'dev 日历应翻到下一个月');
+
+  await go('study');
+  eq(ui.currentCalMonth('study', today).month, now.getMonth() + 1, '学习日历应仍是本月（各模块独立）');
+
+  await go('dev');
+  findByAct(view(), 'cal-today')[0].click();
+  await waitRender();
+  eq(ui.currentCalMonth('dev', today).month, now.getMonth() + 1, '应一键回到本月');
 });
 
 /* ============================================================

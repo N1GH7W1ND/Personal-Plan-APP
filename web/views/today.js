@@ -62,7 +62,20 @@ export default {
       ]),
     });
 
-    return main + overdueCard + stats;
+    const calMonth = ui.currentCalMonth('all', today);
+    const calendarCard = ui.card({
+      title: '任务日历',
+      sub: '所有模块的汇总，点某天看那天安排',
+      body: ui.moduleCalendar({
+        moduleId: 'all',
+        state,
+        today,
+        marks: logic.calendarMarks(state, 'all', calMonth.year, calMonth.month),
+        dayPanel: ui.calendarDayTasks(state, 'all', ui.getCalState('all').selected, today),
+      }),
+    });
+
+    return main + overdueCard + calendarCard + stats;
   },
 
   mounted(root, ctx) {
@@ -82,6 +95,9 @@ export default {
     if (type === 'prev-day') { ctx.setSelectedDate(date.addDays(ctx.selectedDate, -1)); helpers.rerender(); return; }
     if (type === 'next-day') { ctx.setSelectedDate(date.addDays(ctx.selectedDate, 1)); helpers.rerender(); return; }
     if (type === 'goto-today') { ctx.setSelectedDate(null); helpers.rerender(); return; }
+
+    // 日历操作（切月 / 选日期）
+    if (ui.handleCalendarClick(act, ev, 'all', ctx.today, helpers.rerender)) return;
 
     if (type === 'add-here') {
       ctx.quickAdd({ date: ctx.selectedDate, module: 'general' });

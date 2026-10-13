@@ -7,6 +7,12 @@ import * as date from '../date.js';
 import * as logic from '../logic.js';
 import * as ui from '../ui.js';
 
+/** 当前日历月份下，本模块每天的标记 */
+function monthMarks(state, moduleId, today) {
+  const { year, month } = ui.currentCalMonth(moduleId, today);
+  return logic.calendarMarks(state, moduleId, year, month);
+}
+
 function statusChip(item) {
   return '<span class="tag status-chip" data-act="dev-status" data-id="' +
     ui.escapeHtml(item.id) + '" title="点一下切到下一档：' +
@@ -86,6 +92,17 @@ export default {
       body: listHtml + doneHtml,
     }) +
     ui.card({
+      title: '开发日历',
+      sub: '看看这个月哪天忙、哪天清',
+      body: ui.moduleCalendar({
+        moduleId: 'dev',
+        state,
+        today,
+        marks: monthMarks(state, 'dev', today),
+        dayPanel: ui.calendarDayTasks(state, 'dev', ui.getCalState('dev').selected, today),
+      }),
+    }) +
+    ui.card({
       title: '灵感收集箱',
       sub: logic.unhandledIdeas(state).length + ' 条待整理',
       tight: true,
@@ -142,6 +159,9 @@ export default {
     const id = act.getAttribute('data-id');
     const today = ctx.today;
     const state = store.getState();
+
+    // 日历操作（切月 / 选日期）
+    if (ui.handleCalendarClick(act, ev, 'dev', today, helpers.rerender)) return;
 
     const openEditor = (item) => {
       ui.openModal({

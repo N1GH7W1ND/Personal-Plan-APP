@@ -7,6 +7,12 @@ import * as date from '../date.js';
 import * as logic from '../logic.js';
 import * as ui from '../ui.js';
 
+/** 当前日历月份下，本模块每天的标记 */
+function monthMarks(state, moduleId, today) {
+  const { year, month } = ui.currentCalMonth(moduleId, today);
+  return logic.calendarMarks(state, moduleId, year, month);
+}
+
 function statusChip(item) {
   return '<span class="tag status-chip" data-act="study-status" data-id="' +
     ui.escapeHtml(item.id) + '" title="点一下切到下一档：' +
@@ -62,6 +68,17 @@ export default {
       sub: items.length ? '共 ' + items.length + ' 条' : '还没有内容',
       body: listHtml,
     }) +
+    ui.card({
+      title: '学习日历',
+      sub: '哪天学了什么，一眼看到',
+      body: ui.moduleCalendar({
+        moduleId: 'study',
+        state,
+        today,
+        marks: monthMarks(state, 'study', today),
+        dayPanel: ui.calendarDayTasks(state, 'study', ui.getCalState('study').selected, today),
+      }),
+    }) +
     (todayTasks.length ? ui.card({
       title: '今天要学的',
       sub: todayTasks.length + ' 条未完成',
@@ -97,6 +114,9 @@ export default {
     const id = act.getAttribute('data-id');
     const today = ctx.today;
     const state = store.getState();
+
+    // 日历操作（切月 / 选日期）
+    if (ui.handleCalendarClick(act, ev, 'study', today, helpers.rerender)) return;
 
     const openEditor = (item) => {
       const isNew = !item;

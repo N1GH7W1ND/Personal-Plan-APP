@@ -484,6 +484,79 @@ test('学习条目：可删除', () => {
   eq(onDay[0].module, 'study');
 });
 
+/* ---------------- 日历聚合 ---------------- */
+
+test('日历聚合：按模块与月份分组当天任务，含完成数', () => {
+  const s = fresh();
+  const d1 = '2026-10-08';
+  const d2 = '2026-10-09';
+  logic.addTask(s, { title: 'A', module: 'dev', date: d1 });
+  logic.addTask(s, { title: 'B', module: 'dev', date: d1, done: true });
+  logic.addTask(s, { title: 'C', module: 'dev', date: d2 });
+  logic.addTask(s, { title: 'D', module: 'study', date: d1 });
+  logic.addTask(s, { title: 'E', module: 'dev', date: '2026-11-01' }); // 别的月
+
+  const devMarks = logic.calendarMarks(s, 'dev', 2026, 10);
+  eq(Object.keys(devMarks).length, 2, '只应统计本模块本月的两天');
+  eq(devMarks[d1].total, 2, '10-08 应有 2 条');
+  eq(devMarks[d1].done, 1, '其中 1 条已完成');
+  eq(devMarks[d2].total, 1, '10-09 应有 1 条');
+  eq(devMarks['2026-11-01'], undefined, '别的月份不应出现');
+
+  const studyMarks = logic.calendarMarks(s, 'study', 2026, 10);
+  eq(studyMarks[d1].total, 1, '学习模块只应看到自己的任务');
+  eq(Object.keys(studyMarks).length, 1);
+
+  const allMarks = logic.calendarMarks(s, 'all', 2026, 10);
+  eq(allMarks[d1].total, 3, '首页汇总应含所有模块');
+  eq(allMarks[d1].extra, '2 个模块', '应标出当天的模块种类数');
+});
+
+test('日历聚合：健身标记显示是否已练', () => {
+  const s = fresh();
+  const d = '2026-10-08';
+  logic.addTask(s, { title: '训练', module: 'fitness', date: d });
+  logic.finishFitnessDay(s, d);
+  logic.finishFitnessDay(s, '2026-10-09');
+
+  const marks = logic.calendarMarks(s, 'fitness', 2026, 10);
+  eq(marks[d].extra, '已练', '已打卡的日子应标"已练"');
+  eq(marks[d].total, 1, '当天任务数也应统计');
+  eq(marks['2026-10-09'].extra, '已练', '只有打卡记录的日子也要标出来');
+  eq(marks['2026-10-09'].total, 0, '没有任务时任务数为 0');
+});
+
+test('日历聚合：饮食标记显示三餐定了多少', () => {
+  const s = fresh();
+  const d = '2026-10-08';
+  logic.setMeal(s, d, 'breakfast', { text: '燕麦' });
+  logic.setMeal(s, d, 'lunch', { text: '鸡胸' });
+  logic.setMeal(s, '2026-10-09', 'dinner', { text: '番茄牛腩' });
+
+  const marks = logic.calendarMarks(s, 'diet', 2026, 10);
+  eq(marks[d].extra, '三餐已定 2/3', '应标出定了几餐');
+  eq(marks['2026-10-09'].extra, '三餐已定 1/3');
+});
+
+test('日历聚合：空数据返回空对象，天数统计正确', () => {
+  const s = fresh();
+  deepEq(logic.calendarMarks(s, 'dev', 2026, 10), {}, '没有内容时应是空对象');
+  eq(logic.calendarDayCount(s, 'dev', 2026, 10), 0, '有内容的天数应为 0');
+
+  logic.addTask(s, { title: 'A', module: 'dev', date: '2026-10-08' });
+  logic.addTask(s, { title: 'B', module: 'dev', date: '2026-10-20' });
+  logic.addTask(s, { title: 'C', module: 'dev', date: '2026-10-20' });
+  eq(logic.calendarDayCount(s, 'dev', 2026, 10), 2, '应按"天"计数而不是按条数');
+});
+
+test('日历聚合：模块标签中文名正确', () => {
+  eq(logic.moduleLabel('dev'), '开发工作');
+  eq(logic.moduleLabel('study'), '学习');
+  eq(logic.moduleLabel('fitness'), '健身计划');
+  eq(logic.moduleLabel('diet'), '饮食计划');
+  eq(logic.moduleLabel('unknown'), '通用');
+});
+
 /* ---------------- 首页摘要 ---------------- */
 
 test('dataAttrs 不会把 data- 前缀重复叠加（回归：曾生成 data-data-ex 导致按钮失效）', async () => {

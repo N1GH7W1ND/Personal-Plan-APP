@@ -7,6 +7,12 @@ import * as date from '../date.js';
 import * as logic from '../logic.js';
 import * as ui from '../ui.js';
 
+/** 当前日历月份下，本模块每天的标记 */
+function monthMarks(state, moduleId, today) {
+  const { year, month } = ui.currentCalMonth(moduleId, today);
+  return logic.calendarMarks(state, moduleId, year, month);
+}
+
 export default {
   render(state, ctx) {
     const today = ctx.today;
@@ -66,6 +72,17 @@ export default {
       sub: '已定 ' + planned + '/3',
       body: '<div class="list">' + mealRows + '</div>',
     }) +
+    ui.card({
+      title: '饮食日历',
+      sub: '哪天定了三餐、哪天还没定',
+      body: ui.moduleCalendar({
+        moduleId: 'diet',
+        state,
+        today,
+        marks: monthMarks(state, 'diet', today),
+        dayPanel: ui.calendarDayTasks(state, 'diet', ui.getCalState('diet').selected, today),
+      }),
+    }) +
     '<div class="cols-2">' +
     '<div>' +
     ui.card({
@@ -123,6 +140,9 @@ export default {
     const mealKey = act.getAttribute('data-meal');
     const today = ctx.today;
     const state = store.getState();
+
+    // 日历操作（切月 / 选日期）
+    if (ui.handleCalendarClick(act, ev, 'diet', today, helpers.rerender)) return;
 
     if (type === 'meal-eaten') {
       store.dispatch((s) => logic.toggleMealEaten(s, today, mealKey), { label: '勾选已吃' });

@@ -9,6 +9,12 @@ import * as date from '../date.js';
 import * as logic from '../logic.js';
 import * as ui from '../ui.js';
 
+/** 当前日历月份下，本模块每天的标记 */
+function monthMarks(state, moduleId, today) {
+  const { year, month } = ui.currentCalMonth(moduleId, today);
+  return logic.calendarMarks(state, moduleId, year, month);
+}
+
 function setBoxes(exercise, entry, day) {
   const total = (entry && entry.doneSets ? entry.doneSets.length : exercise.sets) || 0;
   const doneSets = (entry && entry.doneSets) || [];
@@ -90,6 +96,17 @@ export default {
         '<div style="height:12px"></div>' +
         '<div class="week-grid">' + weekCells + '</div>',
     }) +
+    ui.card({
+      title: '训练日历',
+      sub: '哪天练了、哪天休息，一眼看到',
+      body: ui.moduleCalendar({
+        moduleId: 'fitness',
+        state,
+        today,
+        marks: monthMarks(state, 'fitness', today),
+        dayPanel: ui.calendarDayTasks(state, 'fitness', ui.getCalState('fitness').selected, today),
+      }),
+    }) +
     (todo.length ? ui.card({
       title: '今天要做的健身任务',
       sub: todo.length + ' 条未完成',
@@ -103,6 +120,9 @@ export default {
     const type = act.getAttribute('data-act');
     const today = ctx.today;
     const state = store.getState();
+
+    // 日历操作（切月 / 选日期）
+    if (ui.handleCalendarClick(act, ev, 'fitness', today, helpers.rerender)) return;
 
     if (type === 'fit-set') {
       const day = act.getAttribute('data-day');

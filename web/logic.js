@@ -954,6 +954,115 @@ export function setDensity(state, value) {
 }
 
 /* ============================================================
+   日历聚合（各模块共用）
+   ============================================================ */
+
+const MODULE_LABELS = {
+  dev: '开发工作',
+  study: '学习',
+  fitness: '健身计划',
+  diet: '饮食计划',
+  general: '通用',
+};
+
+export function moduleLabel(id) {
+  return MODULE_LABELS[id] || '通用';
+}
+
+/** 日期 → 该月所有日期（用于快速判断"这个月有没有内容"） */
+function monthPrefix(year, month) {
+  return year + '-' + String(month).padStart(2, '0') + '-';
+}
+
+/** 取某条数据所在日期（字段名不同，统一成 date） */
+function dateOf(item) {
+  return item && item.date;
+}
+
+/** 该月里某模块的任务，按日期分组 */
+export function tasksByDayInMonth(state, moduleId, year, month) {
+  const prefix = monthPrefix(year, month);
+  const map = {};
+  for (const t of state.tasks) {
+    const d = dateOf(t);
+    if (!d || !d.startsWith(prefix)) continue;
+    if (moduleId && moduleId !== 'all' && t.module !== moduleId) continue;
+    (map[d] = map[d] || []).push(t);
+  }
+  return map;
+}
+
+/**
+ * 某模块的"日历当日标记"。
+ * 返回 { 'YYYY-MM-DD': { total, done, extra } }：
+ *   total / done —— 当天任务总数与完成数
+ *   extra        —— 该模块特有的标记文案（如健身"已练"、饮食"三餐已定 2/3"）
+ */
+export function calendarMarks(state, moduleId, year, month) {
+  const map = tasksByDayInMonth(state, moduleId, year, month);
+
+  // 把该模块特有的记录并进来
+  const marks = {};
+  const ensure = (day) => {
+    marks[day] = marks[day] || { total: 0, done: 0, extra: '' };
+    return marks[day];
+  };
+
+  for (const [day, list] of Object.entries(map)) {
+    const m = ensure(day);
+    m.total = list.length;
+    m.done = list.filter((t) => t.done).length;
+  }
+
+  const prefix = monthPrefix(year, month);
+
+  if (moduleId === 'fitness') {
+    for (const [day, rec] of Object.entries(state.fitness.records || {})) {
+      if (!day.startsWith(prefix) || !rec) continue;
+      const m = ensure(day);
+      m.extra = rec.finished ? '已练' : (rec.label || '训练');
+    }
+  }
+
+  if (moduleId === 'diet') {
+    for (const [day, meals] of Object.entries(state.diet.meals || {})) {
+      if (!day.startsWith(prefix) || !meals) continue;
+      const planned = MEAL_KEYS.filter((k) => meals[k] && String(meals[k].text).trim()).length;
+      if (planned === 0) continue;
+      const m = ensure(day);
+      m.extra = '三餐已定 ' + planned + '/3';
+    }
+  }
+
+  // 学习：该月每天的已学时长
+  if (moduleId === 'study') {
+    for (const item of state.studyItems || []) {
+      const d = item.createdAt ? date.toDateStr(new Date(item.createdAt)) : '';
+      if (!d || !d.startsWith(prefix)) continue;
+      if (!item.minutes) continue;
+      const m = ensure(d);
+      m.extra = m.extra ? m.extra : (item.minutes + ' 分钟');
+    }
+  }
+
+  // 首页：所有模块汇总，附带模块种类数
+  if (moduleId === 'all') {
+    for (const [day, list] of Object.entries(map)) {
+      const kinds = new Set(list.map((t) => t.module));
+      const m = ensure(day);
+      m.extra = kinds.size + ' 个模块';
+    }
+  }
+
+  return marks;
+}
+
+/** 某个模块在该月里有内容的天数（用于日历概览） */
+export function calendarDayCount(state, moduleId, year, month) {
+  return Object.keys(calendarMarks(state, moduleId, year, month)).length;
+}
+
+/* ============================================================
    首页摘要（"待你处理"）
    ============================================================ */
 
