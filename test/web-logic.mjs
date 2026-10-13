@@ -26,6 +26,32 @@ test('模块清单完整且含"通用"兜底', () => {
   eq(logic.moduleName('unknown-module'), '通用', '未知模块应回落到通用');
 });
 
+test('快速添加的模块列表与左侧导航一致（需求 4）', () => {
+  const selectable = logic.quickAddModules();
+  const ids = selectable.map((m) => m.id);
+
+  // 导航里的"业务模块"（排除首页/今日计划/设置这三个非任务模块）
+  const navModuleIds = logic.NAV_ITEMS
+    .map((n) => n.id)
+    .filter((id) => id !== 'home' && id !== 'today' && id !== 'settings');
+
+  deepEq(ids, navModuleIds, '快速添加可选模块应与导航里的业务模块完全一致');
+
+  // 不应出现"通用"这种导航里没有的选项
+  notOk(ids.includes('general'), '下拉里不应出现"通用"（它不是导航入口）');
+
+  // 名称也应与导航一致
+  for (const m of selectable) {
+    const nav = logic.NAV_ITEMS.find((n) => n.id === m.id);
+    ok(nav, m.id + ' 应在导航里存在');
+    eq(m.name, nav.name, m.id + ' 的名称应与导航一致');
+  }
+
+  // 最后一项是"通用"，它仍然可用作兜底，只是不作为选项
+  ok(logic.isModuleId('general'), '"通用"仍应是合法模块 id（兜底用）');
+  for (const id of ids) ok(logic.isModuleId(id), id + ' 应是合法模块 id');
+});
+
 test('已移除的模块不再出现在模块清单与导航里', () => {
   for (const gone of ['media', 'consult', 'game']) {
     eq(logic.MODULE_IDS.includes(gone), false, '模块清单里不应再有 ' + gone);

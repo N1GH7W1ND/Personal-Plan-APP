@@ -61,6 +61,7 @@ const jump = await import('../web/jump.js');
 setFile('阶段4 任务主干');
 
 const view = () => dom.document.getElementById('view');
+const modal = () => dom.document.getElementById('modalLayer');
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -127,13 +128,13 @@ test('首页内联快速补一条：选模块 + 回车 → 任务进入该模块
   ok(input && moduleSel, '应能找到输入框与模块下拉');
 
   moduleSel.value = 'study';
-  input.typeAndEnter('写公众号初稿');
+  input.typeAndEnter('看完事件循环');
   await waitRender();
   assertNoViewError();
 
   const state = store.getState();
   eq(state.tasks.length, 1, '应新增一条任务');
-  eq(state.tasks[0].title, '写公众号初稿');
+  eq(state.tasks[0].title, '看完事件循环');
   eq(state.tasks[0].module, 'study', '应归到学习模块');
   eq(state.tasks[0].date, date.todayStr(), '应排在今天');
 
@@ -143,8 +144,47 @@ test('首页内联快速补一条：选模块 + 回车 → 任务进入该模块
   eq(disk.tasks.length, 1, '应已落盘');
 });
 
+test('首页与弹窗的模块下拉只含导航里的模块，且与导航一致（需求 4）', async () => {
+  // 导航里的业务模块
+  const navIds = logic.NAV_ITEMS
+    .map((n) => n.id)
+    .filter((id) => id !== 'home' && id !== 'today' && id !== 'settings');
+
+  // 首页内联下拉
+  const sel = view().querySelector('[data-field="module"]');
+  ok(sel, '首页应有模块下拉');
+  const optIds = sel.querySelectorAll('option').map((o) => o.getAttribute('value'));
+  deepEq(optIds, navIds, '首页下拉选项应与导航一致');
+  notOk(optIds.includes('general'), '首页下拉不应有"通用"');
+  ok(!sel.value || optIds.includes(sel.value), '默认值应是下拉里的某个模块（实际 ' + sel.value + '）');
+
+  // 顶栏快速添加弹窗
+  const quickBtn = dom.document.getElementById('btnQuickAdd');
+  ok(quickBtn, '应有顶栏快速添加按钮');
+  quickBtn.click();
+  await waitRender();
+
+  const modalSel = modal().querySelector('[data-field="module"]');
+  ok(modalSel, '弹窗里应有模块下拉');
+  const modalOptIds = modalSel.querySelectorAll('option').map((o) => o.getAttribute('value'));
+  deepEq(modalOptIds, navIds, '弹窗下拉选项应与导航一致');
+  notOk(modalOptIds.includes('general'), '弹窗下拉不应有"通用"');
+  deepEq(modalOptIds, optIds, '两处下拉应完全一致');
+
+  // 弹窗里选一个模块提交，验证落到的模块正确
+  modal().querySelector('[data-field="title"]').value = '顺手记一条健身计划';
+  modalSel.value = 'fitness';
+  findByAct(modal(), 'save')[0].click();
+  await waitRender();
+
+  const created = store.getState().tasks.find((t) => t.title === '顺手记一条健身计划');
+  ok(created, '弹窗提交应生成任务');
+  eq(created.module, 'fitness', '应落到所选模块');
+});
+
 test('首页勾选任务后，同一份数据在今日计划里也是已完成（PRD B2）', async () => {
-  const task = store.getState().tasks[0];
+  const task = store.getState().tasks.find((t) => t.title === '看完事件循环');
+  ok(task, '应能找到目标任务');
   const box = findByActAndId(view(), 'toggle-task', task.id);
   ok(box, '应能找到勾选框');
   box.click();
@@ -152,13 +192,12 @@ test('首页勾选任务后，同一份数据在今日计划里也是已完成�
   assertNoViewError();
 
   eq(logic.findTask(store.getState(), task.id).done, true, '任务应变为已完成');
-
-  const onToday = logic.tasksOn(store.getState(), date.todayStr());
-  eq(onToday[0].done, true, '今日计划的同一份数据也应显示已完成');
+  ok(logic.tasksOn(store.getState(), date.todayStr()).some((t) => t.id === task.id && t.done),
+    '今日计划的同一份数据也应显示已完成');
 });
 
 test('在今日计划里取消勾选，首页同步变回未完成（PRD B3）', async () => {
-  const task = store.getState().tasks[0];
+  const task = store.getState().tasks.find((t) => t.title === '看完事件循环');
   await go('today');
 
   const box = findByActAndId(view(), 'toggle-task', task.id);
@@ -171,7 +210,7 @@ test('在今日计划里取消勾选，首页同步变回未完成（PRD B3）',
 });
 
 test('把任务日期改成明天后，首页不再显示它（PRD B4）', async () => {
-  const task = store.getState().tasks[0];
+  const task = store.getState().tasks.find((t) => t.title === '看完事件循环');
   const tomorrow = date.addDays(date.todayStr(), 1);
 
   await go('home');
@@ -204,10 +243,13 @@ test('把任务日期改成明天后，首页不再显示它（PRD B4）', async
   await go('home');
   const homeHtml = view().innerHTML;
   notOk(homeHtml.includes(task.title), '首页今日计划不应再显示明天的任务');
-  ok(homeHtml.includes('今天还没有安排'), '首页应回到空状态');
 
-  // 但模块清单里还在（这里用逻辑层数据核对，模块视图在阶段 5 实现）
-  eq(store.getState().tasks.length, 1, '任务本身没有被删掉');
+  // 任务本身没被删掉，只是换了日期
+  ok(store.getState().tasks.some((t) => t.id === task.id), '任务本身没有被删掉');
+  eq(logic.findTask(store.getState(), task.id).date, tomorrow, '日期应已改为明天');
+  ok(logic.tasksOn(store.getState(), tomorrow).some((t) => t.id === task.id), '明天应能看到它');
+  eq(logic.tasksOn(store.getState(), date.todayStr()).some((t) => t.id === task.id), false,
+    '今天不应再看到它');
 });
 
 test('逾期任务：留在原日期、显示逾期、可单独挪到今天（PRD B6/B7）', async () => {

@@ -38,12 +38,12 @@ export default {
         ui.overdueBlock(overdue, { today, open: overdueOpen }),
     });
 
-    /* ---- 快速补一条（亲手指定模块，没有智能建议） ---- */
+    /* ---- 快速补一条（模块列表与左侧导航一致，没有"通用"） ---- */
     const quickCard = ui.card({
       title: '快速补一条',
       sub: '选好模块，写完回车',
       tight: true,
-      body: ui.quickAddRow({ modules: logic.MODULES }),
+      body: ui.quickAddRow({ modules: logic.quickAddModules() }),
     });
 
     /* ---- 快速备忘 ---- */
@@ -94,7 +94,12 @@ export default {
         const text = quickInput.value.trim();
         if (!text) return;
         const moduleSel = root.querySelector('[data-field="module"]');
-        ctx.addTask({ title: text, module: moduleSel ? moduleSel.value : 'general', date: ctx.today });
+        const fallback = logic.quickAddModules()[0];
+        ctx.addTask({
+          title: text,
+          module: moduleSel ? moduleSel.value : (fallback ? fallback.id : 'general'),
+          date: ctx.today,
+        });
         quickInput.value = '';
         quickInput.focus();
       });

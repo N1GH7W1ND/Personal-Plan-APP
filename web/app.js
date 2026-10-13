@@ -109,7 +109,8 @@ const ctx = {
   noteToTask(id) {
     const note = logic.findNote(store.getState(), id);
     if (!note) return;
-    ui.modulePicker('general', logic.MODULES, (moduleId) => {
+    const modules = logic.quickAddModules();
+    ui.modulePicker(modules.length ? modules[0].id : 'general', modules, (moduleId) => {
       store.dispatch((s) => logic.noteToTask(s, id, { module: moduleId, date: date.todayStr() }), { label: '便签变任务' });
       ui.toast('已变成任务并加入今天', { type: 'ok', duration: 2200 });
     });
@@ -380,7 +381,9 @@ export function stop() {
 function openQuickAdd(prefill) {
   const pre = prefill || {};
   const today = date.todayStr();
-  const moduleOptions = logic.MODULES.map((m) => ({ value: m.id, label: m.name }));
+  const moduleOptions = logic.quickAddModules().map((m) => ({ value: m.id, label: m.name }));
+  // 默认选中第一个模块（开发工作）；不再有"通用"这个选项
+  const defaultModule = moduleOptions.length ? moduleOptions[0].value : 'general';
 
   const body =
     '<div class="field"><label class="field-label">要做什么</label>' +
@@ -388,7 +391,7 @@ function openQuickAdd(prefill) {
     ui.escapeHtml(pre.title || '') + '"></div>' +
     '<div class="field-row">' +
     '<div class="field"><label class="field-label">属于哪个模块</label>' +
-    ui.select('module', pre.module || 'general', moduleOptions) + '</div>' +
+    ui.select('module', logic.isModuleId(pre.module) && pre.module !== 'general' ? pre.module : defaultModule, moduleOptions) + '</div>' +
     '<div class="field"><label class="field-label">安排在哪天</label>' +
     '<input class="input" type="date" data-field="date" value="' + ui.escapeHtml(pre.date || today) + '"></div>' +
     '</div>' +

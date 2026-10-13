@@ -14,7 +14,7 @@ import * as date from './date.js';
 
 export const APP_TITLE = '我的工作台';
 
-/** 任务可归属的模块 */
+/** 任务可归属的模块（名称与左侧导航保持一致） */
 export const MODULES = [
   { id: 'dev', name: '开发工作', short: '开发' },
   { id: 'study', name: '学习', short: '学习' },
@@ -24,6 +24,20 @@ export const MODULES = [
 ];
 
 export const MODULE_IDS = MODULES.map((m) => m.id);
+
+/**
+ * 下拉里可以选择的模块。
+ * 与左侧导航对齐：导航里有几个业务模块，这里就有几个，不多不少。
+ * 「通用」是兜底分类（旧数据、临时任务会落到这里），不作为选项出现——
+ * 否则下拉里会出现"导航里根本没有的模块"，与导航对不上。
+ */
+export function quickAddModules() {
+  return MODULES.filter((m) => m.id !== 'general');
+}
+
+export function isModuleId(id) {
+  return MODULE_IDS.includes(id);
+}
 
 export function moduleName(id) {
   const m = MODULES.find((x) => x.id === id);
