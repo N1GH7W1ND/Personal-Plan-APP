@@ -641,6 +641,68 @@ t.test('旧数据里被移除模块的内容会被清掉，且给出清理报告
   t.eq('games' in raw, false, '磁盘文件里不应再有 games 字段');
 });
 
+t.test('读取时会清理旧字段并写回磁盘（回归：清理只发生在内存里）', async () => {
+  await resetDir('sanitize');
+
+  // 手写一份"旧版本"数据：带已移除模块的字段，且缺 studyItems
+  const legacy = {
+    schemaVersion: 1,
+    revision: 7,
+    updatedAt: '2026-10-01T00:00:00.000Z',
+    tasks: [
+      { id: 't_keep', title: '送学生证', module: 'general', date: '2026-10-13', done: false },
+      { id: 't_drop', title: '自媒体任务', module: 'media', date: '2026-10-13', done: false },
+    ],
+    notes: [],
+    media: [{ id: 'm1', title: '抖音发布我的视频' }],
+    devTasks: [],
+    devIdeas: [],
+    consultTasks: [{ id: 'c1', title: '咨询导员' }],
+    consultRecords: [],
+    fitness: { routine: [], records: {} },
+    diet: { meals: {}, recipes: [], shopping: [] },
+    games: [{ id: 'g1', name: '塞尔达' }],
+    playPlan: [],
+    settings: { fitnessWeeklyGoal: 5, density: 'comfortable' },
+  };
+  await h.store.write(legacy, 7);
+
+  // 写回去的是"清理前"的内容吗？注意 write 内部也会 read，可能已经清理过一次，
+  // 所以这里直接手写文件，确保磁盘上确实是旧格式
+  fs.writeFileSync(h.dataFile(dataDir), JSON.stringify(legacy, null, 2) + '\n', 'utf8');
+  const onDiskBefore = fs.readFileSync(h.dataFile(dataDir), 'utf8');
+  t.includes(onDiskBefore, '"media"', '前置条件：磁盘上确实还有旧字段');
+
+  const r = await h.store.read();
+
+  t.eq(r.sanitized, true, '应报告自己清理并写回了磁盘');
+  t.eq(r.sanitizeFailed, null, '写回不应失败');
+  t.eq(r.revision, 7, '版本号不应被清理动作改变');
+  t.eq(r.updatedAt, '2026-10-01T00:00:00.000Z', '时间戳不应被清理动作改变');
+
+  // 内存里是干净的
+  t.eq(r.state.media, undefined, '内存状态里不该有 media');
+  t.eq(r.state.games, undefined, '内存状态里不该有 games');
+  t.ok(Array.isArray(r.state.studyItems), '应补上 studyItems');
+  t.eq(r.state.tasks.length, 1, '只应留下不属于已移除模块的任务');
+  t.eq(r.state.tasks[0].title, '送学生证', '通用任务必须保留');
+
+  // 磁盘上也被清理了
+  const onDiskAfter = fs.readFileSync(h.dataFile(dataDir), 'utf8');
+  t.notIncludes(onDiskAfter, '"media"', '磁盘文件里不该再有 media');
+  t.notIncludes(onDiskAfter, '"consultTasks"', '磁盘文件里不该再有 consultTasks');
+  t.notIncludes(onDiskAfter, '"games"', '磁盘文件里不该再有 games');
+  t.notIncludes(onDiskAfter, '自媒体任务', '被删模块名下的任务也不该留在文件里');
+  t.includes(onDiskAfter, '送学生证', '通用任务应仍在文件里');
+
+  const parsed = JSON.parse(onDiskAfter);
+  t.eq(parsed.revision, 7, '磁盘上的版本号也应保持不变');
+
+  // 再读一次：这次没有可清理的内容了，不该重复写回
+  const r2 = await h.store.read();
+  t.eq(r2.sanitized, false, '已经是干净格式时不应再写一次磁盘');
+});
+
 // ---------------- 组卷：先起服务，再跑全部用例 ----------------
 
 (async () => {

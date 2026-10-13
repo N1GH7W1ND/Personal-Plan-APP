@@ -421,13 +421,37 @@ async function read() {
 
   const state = normalize(parsed);
   const revision = Number.isFinite(parsed.revision) ? Number(parsed.revision) : 0;
+
+  // 规范化会改动旧数据（例如清掉已移除模块的字段、补上缺失字段）。
+  // 如果只把结果放在内存里，磁盘上就会留下一份"看着干净、其实还带着旧字段"的文件：
+  // 每次启动都要重新清理，导出的备份与实际文件也会不一致。
+  // 所以这里比较一次，确有改动就写回磁盘。
+  // 注意：不动 revision，也不改 updatedAt——内容语义没变，
+  // 改版本号会让多窗口冲突检测误报，改时间会让人以为"数据被改过"。
+  let sanitized = false;
+  let sanitizeFailed = null;
+  const normalizedText = serialize(state);
+  if (normalizedText !== raw.text) {
+    try {
+      await atomicWrite(config.DATA_FILE, normalizedText);
+      sanitized = true;
+    } catch (err) {
+      // 写不进去（只读目录等）不该让应用起不来：内存里已经是清理后的状态，
+      // 但要把失败明确记下来，避免"以为已经清理了"。
+      sanitizeFailed = err.message;
+      console.error('[数据] 清理旧字段后写回失败：' + err.message);
+    }
+  }
+
   return {
     state,
     revision,
     updatedAt: parsed.updatedAt || null,
-    sizeBytes: Buffer.byteLength(raw.text, 'utf8'),
+    sizeBytes: Buffer.byteLength(sanitized ? normalizedText : raw.text, 'utf8'),
     recovered: false,
     missing: false,
+    sanitized,
+    sanitizeFailed,
   };
 }
 
