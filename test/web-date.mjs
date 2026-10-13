@@ -77,8 +77,7 @@ test('前端各模块源码里没有用 toISOString().slice(0,10) 取日期', ()
   }
 });
 
-test('parseDateStr 解析到本地零点', () => {
-  const d = date.parseDateStr('2026-10-08');
+test('parseDateStr 解析到本地零点', () => {  const d = date.parseDateStr('2026-10-08');
   eq(d.getFullYear(), 2026, '年');
   eq(d.getMonth(), 9, '月（0 基）');
   eq(d.getDate(), 8, '日');
@@ -194,4 +193,50 @@ test('monthDay 生成正确的日期串', () => {
   eq(date.monthDay(2026, 10, 8), '2026-10-08');
   eq(date.monthDay(2026, 1, 1), '2026-01-01');
   eq(date.monthDay(2026, 12, 31), '2026-12-31');
+});
+
+/* ---------------- 样式表健康检查 ---------------- */
+
+test('样式表：括号配对，且 var() 引用的变量都有定义', () => {
+  const css = readFileSync(join(ROOT, 'web', 'styles.css'), 'utf8');
+
+  // 大括号必须配对，否则后面的样式会整段失效
+  const open = (css.match(/\{/g) || []).length;
+  const close = (css.match(/\}/g) || []).length;
+  eq(open, close, 'styles.css 的大括号应配对（{ 有 ' + open + ' 个，} 有 ' + close + ' 个）');
+  ok(open > 100, '样式表应当有实质内容（实际 ' + open + ' 个规则块）');
+
+  // 设计变量：:root 里定义的 + 局部作用域里定义的，都要能被引用到
+  const defined = new Set();
+  for (const m of css.matchAll(/(^|\s)(--[a-z0-9-]+)\s*:/g)) defined.add(m[2]);
+
+  const used = new Set();
+  for (const m of css.matchAll(/var\((--[a-z0-9-]+)/g)) used.add(m[1]);
+
+  const missing = [...used].filter((v) => !defined.has(v));
+  eq(missing.length, 0, '这些变量被引用但没有定义：' + missing.join(', '));
+
+  // 核心变量必须存在（缺了会让整页配色失效）
+  for (const v of ['--bg', '--panel', '--text', '--text-2', '--text-3',
+    '--primary', '--primary-weak', '--line', '--radius', '--shadow',
+    '--m-dev', '--m-study', '--m-fitness', '--m-diet', '--ok', '--danger', '--warn']) {
+    ok(defined.has(v), '应定义设计变量 ' + v);
+  }
+});
+
+test('样式表：颜色值格式合法，没有写坏的色值', () => {
+  const css = readFileSync(join(ROOT, 'web', 'styles.css'), 'utf8');
+  // 去掉注释后再检查，避免注释里的示例被误判
+  const code = css.replace(/\/\*[\s\S]*?\*\//g, '');
+
+  // 十六进制颜色必须是 3/6/8 位
+  for (const m of code.matchAll(/#[0-9a-fA-F]+/g)) {
+    const hex = m[0];
+    ok([4, 7, 9].includes(hex.length), '色值位数不对：' + hex);
+  }
+
+  // 不允许出现明显的拼写错误
+  notIncludes(code, 'var(--)', '出现了空的 var()');
+  notIncludes(code, 'undefined', '样式里出现了 undefined');
+  notIncludes(code, 'NaN', '样式里出现了 NaN');
 });
