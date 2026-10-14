@@ -1,10 +1,9 @@
 {
   "name": "workbench",
   "version": "0.1.0",
-  "private": true,
-  "description": "个人工作生活 App（本地运行，数据存本机文件）",
+  "description": "个人工作生活 App（本地运行，数据存本机文件，零第三方依赖）",
   "author": "夜少",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",

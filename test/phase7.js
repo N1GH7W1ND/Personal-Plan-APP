@@ -39,6 +39,7 @@ t.test('交付件齐全：启动脚本、说明、停止脚本、需求与计划
     'PRD.md',
     'DEV-PLAN.md',
     'package.json',
+    'LICENSE',
     'docs/页面结构与交互设计-v1.md',
     'server/index.js',
     'server/config.js',
@@ -162,6 +163,76 @@ t.test('README 里的关键说法与实际一致', async () => {
   t.includes(readme, String(config.BACKUP_KEEP) + ' 份', 'README 里的备份保留份数应与配置一致');
   // 不该宣称做不到的事
   t.notIncludes(readme, '手机端可用', 'README 不应宣称支持手机端');
+});
+
+t.test('README 里写的测试条数与实际一致（加减测试后要同步更新）', async () => {
+  const readme = read('README.md');
+
+  /*
+   * 数一数各测试文件里声明了多少条用例。
+   * 以前 README 写过"328 条"但实际已经 331 条 —— 这类数字最容易悄悄过期，
+   * 所以让它自动核对：加了测试却忘了改 README，这条就红。
+   */
+  const files = [
+    'test/phase1.js', 'test/phase2.js', 'test/phase7.js', 'test/phase8.js',
+    'test/web-date.mjs', 'test/web-logic.mjs', 'test/web-store.mjs',
+    'test/web-views.mjs', 'test/web-modules.mjs', 'test/web-settings.mjs',
+  ].filter((f) => exists(f));
+
+  let total = 0;
+  for (const f of files) {
+    let body = read(f);
+    /*
+     * 这条检查自己不算数。
+     * 否则会自指：多一条"数条数"的检查，实际条数就 +1，README 永远追不上——
+     * 实测踩过这个坑（加了它之后 README 写 332、实际变 333，两边对不上）。
+     * 它是一条"元检查"，不是功能用例，所以从计数里去掉。
+     */
+    body = body.replace(/^t\.test\('README 里写的测试条数与实际一致[^\n]*\n/m, '');
+    total += (body.match(/^(?:t\.)?test\(/gm) || []).length;
+  }
+  t.ok(total > 100, '应数出足够多的用例（实际 ' + total + '）');
+
+  const m = /全部\s*(\d+)\s*项/.exec(readme);
+  t.ok(m, 'README 里应写明测试条数（形如"全部 332 项"）');
+  if (m) {
+    t.eq(Number(m[1]), total,
+      'README 写的条数与实际不符：README 写 ' + m[1] + '，实际 ' + total +
+      '（加/减测试后记得同步 README）');
+  }
+});
+
+t.test('许可证：LICENSE 是完整的 MIT，且与 package.json、README 对得上', async () => {
+  const license = read('LICENSE');
+  const pkg = JSON.parse(read('package.json'));
+  const readme = read('README.md');
+
+  // 1) 是 MIT 的正文，而不是自己乱写的
+  t.ok(/^MIT License\s*$/m.test(license), 'LICENSE 第一行应是 MIT License');
+  t.includes(license, 'Permission is hereby granted, free of charge',
+    '应有 MIT 的授权段');
+  t.includes(license, 'THE SOFTWARE IS PROVIDED "AS IS"', '应有 MIT 的免责段');
+  t.includes(license, 'WITHOUT WARRANTY OF ANY KIND', '应写明不提供担保');
+
+  // 2) 版权行要存在、格式正确、标注了年份
+  const year = new Date().getFullYear();
+  const m = /Copyright \(c\) (\d{4})\s+(.+)$/m.exec(license);
+  t.ok(m, 'LICENSE 应有 Copyright (c) <年份> <署名> 这一行');
+  if (m) {
+    t.eq(Number(m[1]), year, '版权年份应是今年（改年时记得同步）');
+    t.ok(m[2].trim().length > 0, '版权署名不该是空的');
+    // 署名应与 package.json 的 author 一致，避免两处打架
+    t.eq(m[2].trim(), pkg.author, 'LICENSE 的署名应与 package.json 的 author 一致');
+  }
+
+  // 3) package.json 不能再宣称 UNLICENSED / private
+  t.eq(pkg.license, 'MIT', 'package.json 的 license 应是 MIT');
+  t.notOk(pkg.private === true, 'package.json 不该再标 private（已决定公开发布）');
+
+  // 4) README 里要有许可证一节，并指向 LICENSE
+  t.includes(readme, '## 许可证', 'README 应有许可证一节');
+  t.includes(readme, 'LICENSE', 'README 应指向 LICENSE 文件');
+  t.ok(/MIT/.test(readme), 'README 应写明是 MIT');
 });
 
 t.test('README 有给人看的四块基本内容', async () => {

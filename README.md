@@ -257,13 +257,14 @@ data/
 ├─ 工具_取历史版本.cjs          从 Git 历史取回文件旧版本
 ├─ data/                      你的数据（不进版本库）
 ├─ PRD.md                     需求文档
-└─ DEV-PLAN.md                开发计划与协作约定
+├─ DEV-PLAN.md                开发计划与协作约定
+└─ LICENSE                    许可证（MIT）
 ```
 
 ### 跑测试
 
 ```bash
-node test/run-all.js                      # 全部 331 项，约 25 秒
+node test/run-all.js                      # 全部 332 项，约 25 秒
 node test/run-frontend.mjs test/web-logic.mjs   # 只跑某几个文件，约 1 秒
 ```
 
@@ -317,3 +318,13 @@ node 工具_取历史版本.cjs --verify <版本>:<路径>
 
 安装 Node.js 那一步需要网络，那是去官网下载安装包，与本应用无关。
 装完之后，这个应用**完全离线可用**。
+
+---
+
+## 许可证
+
+本项目采用 **MIT 许可证**，见 [LICENSE](LICENSE)。
+
+简单说就是：你可以随便用、改、再发布，甚至拿去商用，
+唯一的要求是**保留版权声明**（也就是 `LICENSE` 文件里那行版权信息）。
+软件按"原样"提供，作者不对使用后果负责。

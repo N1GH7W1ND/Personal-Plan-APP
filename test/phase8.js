@@ -427,20 +427,33 @@ t.test('取历史版本：本地算的 blob 哈希与 git 的算法一致', asyn
     '空内容的 blob 哈希应等于 git 的已知值');
 
   const head = tool.run(['rev-parse', 'HEAD']).toString('utf8').trim();
-  const mine = tool.localBlobHash(fs.readFileSync(path.join(ROOT, 'package.json')));
-  t.eq(mine, tool.blobHashAt(head, 'package.json'),
+  /*
+   * 用"从 HEAD 取出来的字节"算哈希，而不是直接读工作区的文件。
+   * 工作区可能刚改过还没提交，直接读会拿错对象（踩过一次）。
+   */
+  const fromHead = tool.captureToFile('HEAD:package.json');
+  t.eq(tool.localBlobHash(fromHead), tool.blobHashAt(head, 'package.json'),
     '本地算的 package.json blob 哈希应等于 git 记录的');
 });
 
 t.test('取历史版本：能把某个提交里的文件原样取出来（逐字节一致）', async () => {
   const tool = require('../工具_取历史版本.cjs');
+  /*
+   * 这里刻意**不**拿工作区的同名文件做对照。
+   * 工作区的文件可能刚被改过、还没提交（正常开发状态），那时
+   * "HEAD 里的内容"和"工作区的内容"本来就不一样，比了会误报失败
+   * （踩过一次：改了 package.json 之后这条就红了）。
+   * 要验证的是"取出来的字节 == git 里存的那一份"，与工作区无关。
+   */
   const buf = tool.captureToFile('HEAD:package.json');
   t.ok(buf.length > 0, '应取到内容');
-  const work = fs.readFileSync(path.join(ROOT, 'package.json'));
-  t.eq(buf.toString('utf8'), work.toString('utf8'), '取出的内容应与工作区一致');
+  const expect = tool.captureToFile('HEAD:package.json');   // 再取一次，确认稳定
+  t.eq(buf.toString('utf8'), expect.toString('utf8'), '两次取出的内容应完全一致');
   const head = tool.run(['rev-parse', 'HEAD']).toString('utf8').trim();
   t.eq(tool.localBlobHash(buf), tool.blobHashAt(head, 'package.json'),
     '取出的内容哈希应与 git 记录的一致');
+  // 内容应能解析，进一步说明没截断、没多出东西
+  t.ok(JSON.parse(buf.toString('utf8')).name, '取出的应是可解析的 package.json');
 });
 
 t.test('取历史版本：--verify 对真实历史通过（反例见下一条）', async () => {
