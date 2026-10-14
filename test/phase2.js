@@ -41,6 +41,46 @@ t.test('空状态模板字段齐全', async () => {
   t.eq(s.settings.fitnessWeeklyGoal, 3, '设置里应有每周健身目标，默认 3');
 });
 
+/*
+ * 这个字段曾经被服务端丢掉：normalize 不认识它，于是"读到什么存什么"时
+ * 用户保存的板块配置会在下一次写入时消失，表现是"调完顺序、刷新一下又变回去"。
+ * 所以这里同时测"模板里有""规整正确""写盘读回后还在"。
+ */
+t.test('左侧板块配置 navModules：模板里有，写盘读回后还在（回归）', async () => {
+  const s = h.store.emptyState();
+  t.deepEq(s.settings.navModules, ['dev', 'study', 'reading', 'diet', 'fitness'],
+    '空模板应有默认的五个板块');
+
+  // 规整：去掉非法值与重复项，保留顺序
+  t.deepEq(h.store.normalize({ settings: { navModules: ['diet', 'dev', 'diet', '乱写'] } })
+    .settings.navModules, ['diet', 'dev'], '去重、去非法值、保留顺序');
+  // 一个都没有 → 回到保底「学习」
+  t.deepEq(h.store.normalize({ settings: { navModules: [] } }).settings.navModules, ['study'],
+    '空配置应回到保底学习');
+  t.deepEq(h.store.normalize({ settings: { navModules: '乱写' } }).settings.navModules, ['study'],
+    '非数组应回到保底学习');
+  t.deepEq(h.store.normalize({ settings: {} }).settings.navModules, ['study'],
+    '缺字段时也应给出保底值，而不是 undefined');
+  // 勾两个以上时学习可以被取消
+  t.deepEq(h.store.normalize({ settings: { navModules: ['reading', 'fitness'] } })
+    .settings.navModules, ['reading', 'fitness'], '不该强行补回学习');
+  // 已经合法的配置不该被改动
+  t.deepEq(h.store.normalize({ settings: { navModules: ['fitness', 'study'] } })
+    .settings.navModules, ['fitness', 'study'], '合法配置应原样保留');
+
+  // 写盘再读回：这一轮必须原样还在（之前会被服务端丢掉）
+  await resetDir('nav');
+  const custom = ['fitness', 'reading', 'dev'];
+  const base = h.store.emptyState();
+  base.settings.navModules = custom;
+  await h.store.write(base, 0);
+  const back = await h.store.read();
+  t.deepEq(back.state.settings.navModules, custom,
+    '写盘再读回后，板块配置必须原样保留');
+  t.includes(fs.readFileSync(h.dataFile(dataDir), 'utf8'), '"navModules"',
+    '磁盘文件里应有 navModules 字段');
+});
+
 t.test('normalize 能容忍残缺/手改数据', async () => {
   const n = h.store.normalize({ tasks: 'not-an-array', fitness: null, diet: 5, settings: { density: 'weird' } });
   t.deepEq(n.tasks, [], 'tasks 应被修正为空数组');

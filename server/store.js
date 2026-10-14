@@ -32,7 +32,13 @@ function emptyState() {
     bookNotes: [],
     fitness: { log: [], goals: [], notes: [] },
     diet: { meals: {}, recipes: [], shopping: [] },
-    settings: { density: 'comfortable', readingDailyGoal: 30, fitnessWeeklyGoal: 3 },
+    settings: {
+      density: 'comfortable',
+      readingDailyGoal: 30,
+      fitnessWeeklyGoal: 3,
+      // 左侧显示哪些板块、按什么顺序（与前端同一套规则）
+      navModules: ['dev', 'study', 'reading', 'diet', 'fitness'],
+    },
   };
 }
 
@@ -112,6 +118,22 @@ function normalize(input) {
   // 每周健身目标：1–21 次，非法值回落 3
   const fg = Number(out.settings.fitnessWeeklyGoal);
   out.settings.fitnessWeeklyGoal = Number.isFinite(fg) && fg >= 1 && fg <= 21 ? Math.round(fg) : 3;
+
+  /*
+   * 左侧显示哪些板块、按什么顺序。
+   *
+   * 这一步必须做：服务端是"读到什么就存什么"，
+   * 如果这里不认识这个字段，用户保存的板块配置会在下一次写入时被丢掉，
+   * 表现就是"调完顺序、刷新一下又回到只剩学习"。
+   * 规则与 web/logic.js 的 sanitizeNavModules 保持一致（服务端不引用前端模块，故此处重复一份）。
+   */
+  const NAV_CHOICES = ['dev', 'study', 'reading', 'diet', 'fitness'];
+  const seen = [];
+  for (const id of Array.isArray(out.settings.navModules) ? out.settings.navModules : []) {
+    if (NAV_CHOICES.includes(id) && !seen.includes(id)) seen.push(id);
+  }
+  // 一个都没有（含非法/空）→ 回到保底「学习」；其余情况原样保留（学习也可以被取消）
+  out.settings.navModules = seen.length ? seen : ['study'];
 
   out.schemaVersion = 1;
   out.revision = Number.isFinite(out.revision) ? Number(out.revision) : 0;

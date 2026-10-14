@@ -2010,7 +2010,8 @@ a { color: var(--primary); text-decoration: none; }
 
 .home-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  /* 两列等宽：快速备忘这一列与左侧今日计划一样宽 */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: var(--gap);
   align-items: start;
 }
@@ -2027,6 +2028,8 @@ a { color: var(--primary); text-decoration: none; }
   display: flex;
   flex-direction: column;
   min-height: 340px;
+  /* min-width:0 让卡片只能被网格列宽决定，不会被长内容撑宽 */
+  min-width: 0;
 }
 
 /* 卡片体撑满剩余高度，列表再在内部滚动 */
@@ -2038,11 +2041,40 @@ a { color: var(--primary); text-decoration: none; }
 }
 
 /* 备忘多时列表自己滚动，不会把卡片越撑越长 */
+/*
+ * 宽度稳定：
+ * 备忘这一列的宽度只由网格决定。显式关掉"被内容撑宽"的可能性——
+ * 列、卡片、卡片体、列表逐层 min-width:0，长单词/长串也会换行，
+ * 所以加内容时列宽不会抖，超出高度就在列表内出现纵向滚动条。
+ */
+.home-grid > div { min-width: 0; }
+
+.note-card-full,
+.note-card-full > .card-body,
+.note-card-full .note-list,
+.note-card-full .note,
+.note-card-full .note-text {
+  min-width: 0;
+}
+
+/* 备忘文字一律换行，避免长串把列撑宽（也就不会出现横向滚动条） */
+.note-card-full .note-text {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* 纵向滚动条的槽位一直留着：有无滚动条时内容区宽度不跳 */
+.note-card-full .note-list {
+  scrollbar-gutter: stable;
+}
 .note-card-full .note-list {
   flex: 1 1 auto;
   min-height: 0;
-  max-height: 46vh;
+  /* 高度上限给一个固定值：备忘变多时在这里出现纵向滚动条，
+     而不是把卡片越撑越长（也不再受视口高度影响，表现更可预期） */
+  max-height: 340px;
   overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 3px;
 }
 .summary-item {
@@ -2064,6 +2096,8 @@ a { color: var(--primary); text-decoration: none; }
   display: flex;
   flex-direction: column;
   min-height: 340px;
+  /* min-width:0 让卡片只能被网格列宽决定，不会被长内容撑宽 */
+  min-width: 0;
 }
 
 /* 卡片体撑满剩余高度，列表再在内部滚动 */
@@ -2075,11 +2109,40 @@ a { color: var(--primary); text-decoration: none; }
 }
 
 /* 备忘多时列表自己滚动，不会把卡片越撑越长 */
+/*
+ * 宽度稳定：
+ * 备忘这一列的宽度只由网格决定。显式关掉"被内容撑宽"的可能性——
+ * 列、卡片、卡片体、列表逐层 min-width:0，长单词/长串也会换行，
+ * 所以加内容时列宽不会抖，超出高度就在列表内出现纵向滚动条。
+ */
+.home-grid > div { min-width: 0; }
+
+.note-card-full,
+.note-card-full > .card-body,
+.note-card-full .note-list,
+.note-card-full .note,
+.note-card-full .note-text {
+  min-width: 0;
+}
+
+/* 备忘文字一律换行，避免长串把列撑宽（也就不会出现横向滚动条） */
+.note-card-full .note-text {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* 纵向滚动条的槽位一直留着：有无滚动条时内容区宽度不跳 */
+.note-card-full .note-list {
+  scrollbar-gutter: stable;
+}
 .note-card-full .note-list {
   flex: 1 1 auto;
   min-height: 0;
-  max-height: 46vh;
+  /* 高度上限给一个固定值：备忘变多时在这里出现纵向滚动条，
+     而不是把卡片越撑越长（也不再受视口高度影响，表现更可预期） */
+  max-height: 340px;
   overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 3px;
 }
 .summary-item { margin-top: 2px; }

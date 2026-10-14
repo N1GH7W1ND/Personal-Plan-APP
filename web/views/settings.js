@@ -75,7 +75,13 @@ export default {
       sub: '勾选要显示的板块，用 ↑ ↓ 调顺序',
       body: (() => {
         const on = logic.navModules(state);
-        const rows = logic.NAV_MODULE_CHOICES.map((id) => {
+        /*
+         * 列表顺序跟着左侧走：
+         *   已勾选的按"左侧显示的顺序"排在前，未勾选的跟在后面。
+         * 这样按 ↑ ↓ 调整顺序时，这一列的顺序会同步变化，
+         * 一眼就能看出当前左侧是什么样（之前用的是固定顺序，调完不动，容易看糊涂）。
+         */
+        const rows = logic.navModulePickerOrder(state).map((id) => {
           const checked = on.includes(id);
           const required = id === logic.NAV_MODULE_REQUIRED;
           const idx = on.indexOf(id);

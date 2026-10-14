@@ -1702,6 +1702,34 @@ test('左侧栏配置：可见导航项的顺序与内容', () => {
   }
 });
 
+test('左侧板块选择：列表顺序跟随左侧实际顺序（R26）', () => {
+  const s = fresh();
+
+  // 默认：列表顺序就是左侧顺序
+  deepEq(logic.navModulePickerOrder(s), logic.navModules(s), '默认时两者一致');
+  deepEq(logic.navModulePickerOrder(s), ['dev', 'study', 'reading', 'diet', 'fitness']);
+
+  // 把饮食挪到最前 → 列表第一项也应是饮食
+  for (let i = 0; i < 3; i++) logic.moveNavModule(s, 'diet', -1);
+  deepEq(logic.navModules(s), ['diet', 'dev', 'study', 'reading', 'fitness']);
+  deepEq(logic.navModulePickerOrder(s), ['diet', 'dev', 'study', 'reading', 'fitness'],
+    '调顺序后列表跟着变');
+
+  // 未勾选的跟在后头，且不重复、不丢项
+  logic.setNavModules(s, ['reading', 'dev']);
+  deepEq(logic.navModulePickerOrder(s), ['reading', 'dev', 'study', 'diet', 'fitness'],
+    '勾选的按左侧顺序在前，未勾选的按默认清单在后');
+  eq(logic.navModulePickerOrder(s).length, logic.NAV_MODULE_CHOICES.length,
+    '列表里应是全部五个，一个不少也一个不多');
+  eq(new Set(logic.navModulePickerOrder(s)).size, logic.NAV_MODULE_CHOICES.length,
+    '不应出现重复项');
+
+  // 全部勾上时，列表 === 左侧顺序
+  logic.setNavModules(s, ['fitness', 'diet', 'reading', 'study', 'dev']);
+  deepEq(logic.navModulePickerOrder(s), ['fitness', 'diet', 'reading', 'study', 'dev'],
+    '全勾时列表就是左侧顺序');
+});
+
 test('左侧栏配置：隐藏的模块仍然可以访问（旧链接与标签跳转不能跳丢）', () => {
   const s = fresh();
   logic.setNavModules(s, ['reading']);

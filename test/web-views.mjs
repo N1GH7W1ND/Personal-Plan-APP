@@ -1113,6 +1113,56 @@ test('设置里调顺序：侧栏与快速添加下拉的顺序一起变（R21�
   }
 });
 
+test('设置页列表的顺序跟着左侧走，不会停在原位（R26）', async () => {
+  try {
+    await go('settings');
+    const rowOrder = () => view().querySelectorAll('.nav-pick')
+      .map((el) => el.getAttribute('data-module'));
+
+    // 默认与左侧顺序一致
+    deepEq(rowOrder(), ['dev', 'study', 'reading', 'diet', 'fitness'], '默认列表顺序');
+
+    // 把「健身」从最后一位往上挪两次 → 列表里的位置也应跟着上移
+    for (let i = 0; i < 2; i++) {
+      findByActAndId(view(), 'nav-up', 'fitness').click();
+      await waitRender();
+    }
+    deepEq(logic.navModules(store.getState()), ['dev', 'study', 'fitness', 'reading', 'diet'],
+      '前置条件：左侧顺序已变');
+    deepEq(rowOrder(), ['dev', 'study', 'fitness', 'reading', 'diet'],
+      '设置页列表的顺序应同步变化（这是本次要修的问题）');
+
+    // 「第 N 位」的编号也要跟着变
+    const rows = view().querySelectorAll('.nav-pick');
+    const posOf = (id) => {
+      const row = rows.find((el) => el.getAttribute('data-module') === id);
+      const t = row.querySelector('.np-order');
+      return t ? t.textContent : '';
+    };
+    eq(posOf('fitness'), '第 3 位', '健身的位次编号应更新');
+    eq(posOf('dev'), '第 1 位', '开发的位次编号应更新');
+
+    // 再下移一次，两边一起回退
+    findByActAndId(view(), 'nav-down', 'fitness').click();
+    await waitRender();
+    deepEq(rowOrder(), ['dev', 'study', 'reading', 'fitness', 'diet'], '下移后列表顺序同步');
+
+    // 取消勾选一个：它应掉到列表末尾（未勾选的排在后面），左侧少一项
+    const dietBox = view().querySelector('[data-nav-toggle="diet"]');
+    dietBox.checked = false;
+    dietBox.fire('change', {});
+    await waitRender();
+    eq(rowOrder()[rowOrder().length - 1], 'diet', '取消勾选的应排到列表最后');
+    deepEq(logic.navModules(store.getState()), ['dev', 'study', 'reading', 'fitness'],
+      '左侧也不该再有饮食');
+
+    // 列表里仍然是全部五项，没有丢项
+    eq(rowOrder().length, 5, '列表里应始终是全部五项');
+  } finally {
+    await resetAfterTest();
+  }
+});
+
 test('隐藏的模块仍然可以进：旧链接与任务标签不会跳丢（R21 回归）', async () => {
   try {
     // 只留阅读（学习会被自动补上）

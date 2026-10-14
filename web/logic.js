@@ -166,6 +166,17 @@ export const NAV_FIXED_IDS = NAV_ITEMS
  * 被关掉的模块只是**不显示**，路由仍然存在——这样旧链接、快捷键、
  * 以及任务上的模块标签跳转，都不会跳到不存在的地方。
  */
+/**
+ * 「左侧板块选择」列表里的显示顺序。
+ *
+ * 已勾选的按**左侧实际顺序**排在前，未勾选的跟在后面（按默认清单顺序）。
+ * 这样调顺序时这一列会同步变化，不会出现"左边变了、设置里那一列还挺在原位"的困惑。
+ */
+export function navModulePickerOrder(state) {
+  const on = navModules(state);
+  const rest = NAV_MODULE_CHOICES.filter((id) => !on.includes(id));
+  return on.concat(rest);
+}
 export function visibleNavItems(state) {
   const ids = navModules(state);
   const byId = {};

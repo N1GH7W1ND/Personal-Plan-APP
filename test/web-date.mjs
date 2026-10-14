@@ -280,6 +280,35 @@ test('样式表：左侧栏宽度、字号与输入框宽度不缩水（R22）',
       ') < --fs-' + names[i] + '(' + fs6[i] + ')');
   }
 
+  /*
+   * 首页两列等宽：快速备忘那一列要和左侧今日计划一样宽。
+   * 之前是 1.6fr : 1fr（左宽右窄），按本人要求改成等宽。
+   */
+  const homeGrid = /\.home-grid\s*\{[^}]*grid-template-columns:\s*([^;]+);/.exec(code);
+  ok(homeGrid, '应能找到首页两列的宽度定义');
+  const cols = homeGrid[1].trim();
+  ok(/minmax\(0,\s*1fr\)\s+minmax\(0,\s*1fr\)/.test(cols),
+    '首页两列应等宽（实际：' + cols + '）');
+
+  /*
+   * 快速备忘那一列不能被内容撑宽：卡片、卡片体、列表逐层 min-width:0。
+   * 这几条写在一个组合选择器里，所以直接在整个规则文本上找
+   * （按单个选择器拆开去匹配会漏掉组合写法）。
+   */
+  const minWidthRule = /([^{}]*)\{[^}]*min-width:\s*0[^}]*\}/g;
+  const covered = [];
+  let mw;
+  while ((mw = minWidthRule.exec(code)) !== null) covered.push(mw[1]);
+  const allSelectors = covered.join(' | ');
+  for (const sel of ['.note-card-full', '.note-card-full > .card-body', '.note-card-full .note-list']) {
+    ok(allSelectors.includes(sel), sel + ' 应被 min-width: 0 覆盖（防止被内容撑宽）');
+  }
+  // 超宽内容一律换行，避免出现横向滚动条
+  ok(/\.note-card-full \.note-text\s*\{[^}]*overflow-wrap:\s*anywhere/.test(code),
+    '备忘文字应换行，不该靠横向滚动');
+  // 纵向滚动条的槽位常驻，有无滚动条时内容区宽度不跳
+  ok(/\.note-card-full \.note-list\s*\{[^}]*scrollbar-gutter:\s*stable/.test(code),
+    '备忘列表应保留滚动条槽位，避免宽度跳动');
   // 模块页顶部「加待办 / 加内容」那一块的板块下拉：放宽过
   const sel = numOf(/\.quick-add\s+\.select\s*\{[^}]*width:\s*(\d+)px/, '快速添加下拉宽度');
   ok(sel >= 136, '快速添加的下拉宽度应 >= 136px（实际 ' + sel + '）');
