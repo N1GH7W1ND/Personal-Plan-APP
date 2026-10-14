@@ -38,6 +38,7 @@
   /* 各模块主题色（深底上整体提亮，保证对比度） */
   --m-dev: #7cb0ff;
   --m-study: #b39bff;
+  --m-reading: #5fd0c8;
   --m-diet: #f0b458;
   --m-general: #9aa6bd;
 
@@ -218,17 +219,45 @@ a { color: var(--primary); text-decoration: none; }
   font-size: var(--fs-md);
   cursor: pointer;
   user-select: none;
-  transition: background .14s, color .14s, transform .14s;
+  transition: background .16s ease, color .16s ease, transform .16s ease, box-shadow .16s ease;
 }
 
-.nav-item:hover { background: rgba(255, 255, 255, .07); color: var(--text); }
-.nav-item:active { transform: scale(.988); }
+/* 悬浮：整体轻微右移 + 背景提亮，像被"拎"起来一点 */
+.nav-item:hover {
+  background: rgba(255, 255, 255, .075);
+  color: var(--text);
+  transform: translateX(3px);
+  box-shadow: var(--shadow-inset);
+}
+
+/* 悬浮时图标轻动一下（方向因图标而异，这里统一用轻微放大） */
+.nav-item:hover .nav-icon { transform: scale(1.14); opacity: 1; }
+.nav-icon { transition: transform .2s cubic-bezier(.2, 1.4, .5, 1), opacity .2s; }
+
+/* 按下：微微缩一下，给一点"按到实物"的手感 */
+.nav-item:active { transform: translateX(3px) scale(.982); }
 
 .nav-item.active {
   background: linear-gradient(90deg, var(--primary-weak-2) 0%, rgba(110, 168, 254, .06) 100%);
   color: #eaf1ff;
   font-weight: 600;
   box-shadow: var(--shadow-inset), 0 0 0 1px rgba(110, 168, 254, .18);
+}
+
+/* 选中项：外圈一层缓慢呼吸的光晕，视线容易落回当前页 */
+.nav-item.active::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 18px rgba(110, 168, 254, .22);
+  animation: navBreathe 3.4s ease-in-out infinite;
+}
+
+@keyframes navBreathe {
+  0%, 100% { opacity: .45; }
+  50% { opacity: .95; }
 }
 
 /* 选中项左侧的竖条：一眼看出在哪一页 */
@@ -243,6 +272,13 @@ a { color: var(--primary); text-decoration: none; }
   border-radius: 0 3px 3px 0;
   background: var(--primary);
   box-shadow: 0 0 12px rgba(110, 168, 254, .8);
+  /* 切换页面时竖条"长出来" */
+  animation: navBarIn .28s cubic-bezier(.2, 1.3, .4, 1);
+}
+
+@keyframes navBarIn {
+  0% { height: 4px; opacity: 0; }
+  100% { height: 20px; opacity: 1; }
 }
 
 .nav-icon {
@@ -268,9 +304,22 @@ a { color: var(--primary); text-decoration: none; }
   display: none;
   align-items: center;
   justify-content: center;
+  transition: transform .2s cubic-bezier(.2, 1.5, .4, 1);
 }
 
-.nav-count.show { display: inline-flex; }
+/* 徽标出现时轻轻弹一下 */
+.nav-count.show {
+  display: inline-flex;
+  animation: countPop .34s cubic-bezier(.2, 1.6, .4, 1);
+}
+
+@keyframes countPop {
+  0% { transform: scale(.4); opacity: 0; }
+  60% { transform: scale(1.18); opacity: 1; }
+  100% { transform: scale(1); }
+}
+
+.nav-item:hover .nav-count.show { transform: scale(1.12); }
 
 .sidebar-foot {
   border-top: 1px solid var(--line);
@@ -640,6 +689,7 @@ a { color: var(--primary); text-decoration: none; }
 
 .tag.m-dev     { background: rgba(124, 176, 255, .16); color: var(--m-dev); }
 .tag.m-study   { background: rgba(179, 155, 255, .16); color: var(--m-study); }
+.tag.m-reading { background: rgba(95, 208, 200, .16); color: var(--m-reading); }
 .tag.m-diet    { background: rgba(240, 180, 88, .16); color: var(--m-diet); }
 .tag.m-general { background: rgba(154, 166, 189, .16); color: var(--m-general); }
 
@@ -1128,6 +1178,173 @@ a { color: var(--primary); text-decoration: none; }
 }
 
 .list-scroll { max-height: 320px; overflow-y: auto; }
+
+/* ---------------- 阅读模块 ---------------- */
+
+/* 今日目标 */
+.read-goal { margin-bottom: 14px; }
+
+.read-goal-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.read-goal-label { flex: 1 1 auto; font-size: var(--fs-md); color: var(--text-2); }
+.read-goal-label b { color: var(--text); font-size: var(--fs-lg); }
+
+/* 本周七个小格 */
+.week-strip {
+  display: flex;
+  gap: 7px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.week-dot {
+  flex: 1 1 0;
+  min-width: 46px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, .04);
+  padding: 7px 4px;
+  text-align: center;
+  transition: background .16s, border-color .16s, transform .16s;
+}
+
+.week-dot .wd-name {
+  display: block;
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+
+.week-dot .wd-min {
+  display: block;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  margin-top: 2px;
+  color: var(--text-2);
+}
+
+.week-dot.part { border-color: rgba(95, 208, 200, .38); background: rgba(95, 208, 200, .10); }
+.week-dot.part .wd-min { color: var(--m-reading); }
+.week-dot.done {
+  border-color: rgba(95, 208, 200, .6);
+  background: rgba(95, 208, 200, .2);
+  box-shadow: 0 0 14px rgba(95, 208, 200, .22);
+}
+.week-dot.done .wd-min { color: #a8f0ea; }
+.week-dot.today { box-shadow: 0 0 0 2px var(--primary) inset; }
+
+/* 书清单 */
+.book-group + .book-group { margin-top: 14px; }
+
+.book-group-head {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  font-weight: 600;
+  padding: 0 4px 6px;
+  letter-spacing: .3px;
+}
+
+.book-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, .035);
+  margin-bottom: 8px;
+  transition: background .16s, border-color .16s, transform .16s;
+}
+
+.book-row:hover {
+  background: rgba(255, 255, 255, .07);
+  border-color: rgba(95, 208, 200, .3);
+  transform: translateX(2px);
+}
+
+.book-row.flash { animation: flash 1.6s ease-out; }
+
+.book-main { flex: 1 1 auto; min-width: 0; }
+
+.book-title {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  cursor: text;
+  word-break: break-word;
+}
+
+.book-progress {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 8px;
+  max-width: 340px;
+}
+
+.book-progress .progress { flex: 1 1 auto; }
+
+.book-pct {
+  font-size: var(--fs-xs);
+  color: var(--m-reading);
+  font-weight: 700;
+  min-width: 34px;
+  text-align: right;
+}
+
+.book-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.stars { color: var(--warn); letter-spacing: 1px; }
+
+/* 状态标签 */
+.tag.st-want     { background: rgba(154, 166, 189, .16); color: var(--m-general); }
+.tag.st-reading  { background: rgba(95, 208, 200, .18); color: var(--m-reading); }
+.tag.st-finished { background: rgba(95, 211, 154, .16); color: var(--ok); }
+.tag.st-paused   { background: rgba(255, 207, 92, .16); color: var(--warn); }
+
+/* 读书笔记 */
+.book-note {
+  border: 1px solid var(--line-2);
+  border-left: 2px solid var(--m-reading);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, .035);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  transition: background .16s, border-color .16s;
+}
+
+.book-note:hover { background: rgba(255, 255, 255, .07); }
+.book-note.flash { animation: flash 1.6s ease-out; }
+
+.bn-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: var(--fs-xs);
+  flex-wrap: wrap;
+}
+
+.bn-book { color: var(--m-reading); cursor: pointer; }
+.bn-book:hover { text-decoration: underline; }
+
+.bn-text {
+  font-size: var(--fs-md);
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tag.bn-quote { background: rgba(179, 155, 255, .16); color: var(--m-study); }
 
 /* ---------------- 弹窗 / 提示 ---------------- */
 

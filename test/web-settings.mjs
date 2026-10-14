@@ -136,6 +136,8 @@ test('设置页显示的条数与实际数据一致', async () => {
   eq(textOf(1), String(state.notes.length) + '备忘', '备忘数应一致');
   eq(textOf(2), String(state.devTasks.length + state.devIdeas.length) + '开发（含灵感）', '开发数应一致');
   eq(textOf(3), String(state.studyItems.length) + '学习条目', '学习条目数应一致');
+  eq(textOf(4), String(state.books.length) + '书', '书的数量应一致');
+  eq(textOf(5), String(state.bookNotes.length) + '读书笔记', '读书笔记数应一致');
 });
 
 /* ============================================================

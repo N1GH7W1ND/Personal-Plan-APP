@@ -18,11 +18,12 @@ function fresh() {
 
 test('模块清单完整且含"通用"兜底', () => {
   const ids = logic.MODULE_IDS;
-  for (const id of ['dev', 'study', 'diet', 'general']) {
+  for (const id of ['dev', 'study', 'reading', 'diet', 'general']) {
     ok(ids.includes(id), '缺少模块 ' + id);
   }
   eq(logic.moduleName('dev'), '开发');
   eq(logic.moduleName('study'), '学习');
+  eq(logic.moduleName('reading'), '阅读');
   eq(logic.moduleName('unknown-module'), '通用', '未知模块应回落到通用');
 });
 
@@ -65,9 +66,9 @@ test('已移除的模块不再出现在模块清单与导航里', () => {
   eq(logic.moduleName('fitness'), '通用', '旧数据里的 fitness 应回落到通用');
 });
 
-test('导航是 6 个入口且顺序固定', () => {
+test('导航是 7 个入口且顺序固定', () => {
   deepEq(logic.NAV_ITEMS.map((n) => n.id), [
-    'home', 'today', 'dev', 'study', 'diet', 'settings',
+    'home', 'today', 'dev', 'study', 'reading', 'diet', 'settings',
   ]);
   for (const item of logic.NAV_ITEMS) {
     ok(item.name && item.icon, item.id + ' 应有名称与图标');
@@ -479,6 +480,317 @@ test('学习条目：可删除', () => {
   const onDay = logic.tasksOn(s2, '2026-10-08');
   eq(onDay.length, 1, '学习任务应计入当天任务');
   eq(onDay[0].module, 'study');
+});
+
+/* ---------------- 阅读 ---------------- */
+
+test('阅读：加书会补全字段并默认想读', () => {
+  const s = fresh();
+  const book = logic.addBook(s, { title: '  置身事内  ', author: ' 兰小欢 ', totalPages: '320' });
+  eq(book.title, '置身事内', '书名应去掉首尾空格');
+  eq(book.author, '兰小欢');
+  eq(book.kind, 'book', '默认是纸书');
+  eq(book.status, 'want', '默认想读');
+  eq(book.totalPages, 320, '字符串页数应转成数字');
+  eq(book.currentPage, 0);
+  eq(book.rating, 0);
+  ok(book.id && book.createdAt, '应有 id 与创建时间');
+  eq(s.books.length, 1);
+
+  eq(logic.addBook(s, { title: '   ' }), null, '空书名应被拒绝');
+  eq(logic.addBook(s, ''), null, '空字符串应被拒绝');
+  eq(s.books.length, 1, '拒绝后不应写入');
+});
+
+test('阅读：非法分类与状态会被纠正，页码不会超过总页数', () => {
+  const s = fresh();
+  const b = logic.addBook(s, { title: '测试', kind: '乱写', status: '瞎写' });
+  eq(b.kind, 'book', '非法形式应回落到纸书');
+  eq(b.status, 'want', '非法状态应回落到想读');
+
+  // 已读到超过总页数应被夹住
+  const b2 = logic.addBook(s, { title: 'A', totalPages: 100, currentPage: 999 });
+  eq(b2.currentPage, 100, '已读页数不应超过总页数');
+});
+
+test('阅读：有进度自动转"在读"，读到最后一页自动"已读完"', () => {
+  const s = fresh();
+  const b = logic.addBook(s, { title: 'A', totalPages: 200 });
+  eq(b.status, 'want');
+
+  logic.updateBook(s, b.id, { currentPage: 20 });
+  eq(b.status, 'reading', '有进度后应自动变成在读');
+  eq(b.startedAt, date.todayStr(), '应记下开始日期');
+
+  logic.updateBook(s, b.id, { currentPage: 200 });
+  eq(b.status, 'finished', '读到最后一页应自动标为已读完');
+  eq(b.finishedAt, date.todayStr(), '应记下完成日期');
+
+  // 手动标为已读完时页数应补满
+  const s2 = fresh();
+  const b2 = logic.addBook(s2, { title: 'B', totalPages: 50 });
+  logic.updateBook(s2, b2.id, { status: 'finished' });
+  eq(b2.currentPage, 50, '手动标已读完应把页码补满');
+
+  // 没填总页数时不应误判为读完
+  const s3 = fresh();
+  const b3 = logic.addBook(s3, { title: 'C' });
+  logic.updateBook(s3, b3.id, { currentPage: 30 });
+  eq(b3.status, 'reading', '没填总页数时只应变成在读，不能判成读完');
+});
+
+test('阅读：进度百分比与剩余页数计算正确，也处理边界', () => {
+  const s = fresh();
+  const b = logic.addBook(s, { title: 'A', totalPages: 200, currentPage: 50 });
+  eq(logic.bookProgress(b), 25, '50/200 应为 25%');
+  eq(logic.bookPagesLeft(b), 150);
+
+  eq(logic.bookProgress({ currentPage: 10, totalPages: 0 }), 0, '没填总页数时进度为 0，不能除以 0');
+  eq(logic.bookProgress(null), 0, '空值应为 0');
+  eq(logic.bookProgress({ currentPage: 0, totalPages: 100 }), 0);
+
+  const full = logic.addBook(s, { title: 'B', totalPages: 10, currentPage: 10 });
+  eq(logic.bookProgress(full), 100, '读完应为 100%');
+  eq(logic.bookPagesLeft(full), 0);
+});
+
+test('阅读：推进页码可前进可后退，到顶自动读完', () => {
+  const s = fresh();
+  const b = logic.addBook(s, { title: 'A', totalPages: 100 });
+
+  logic.advanceBookPage(s, b.id, 30);
+  eq(b.currentPage, 30);
+  logic.advanceBookPage(s, b.id, -10);
+  eq(b.currentPage, 20, '应能往回退');
+  logic.advanceBookPage(s, b.id, -999);
+  eq(b.currentPage, 0, '不应退到负数');
+
+  logic.advanceBookPage(s, b.id, 1000);
+  eq(b.currentPage, 100, '不应超过总页数');
+  eq(b.status, 'finished', '推进到最后一页应自动读完');
+
+  eq(logic.advanceBookPage(s, '不存在', 10), null, '不存在的书应返回 null');
+});
+
+test('阅读：记一次阅读会累加到当天，并能同时推进页码', () => {
+  const s = fresh();
+  const b = logic.addBook(s, { title: 'A', totalPages: 100 });
+  const d = '2026-10-08';
+
+  logic.logReading(s, { date: d, minutes: 20, bookId: b.id, pages: 10 });
+  eq(logic.readingMinutesOn(s, d), 20);
+  eq(b.currentPage, 10, '应同时推进页码');
+
+  // 同一天再记一次应累加，而不是新增一条
+  logic.logReading(s, { date: d, minutes: 15 });
+  eq(logic.readingMinutesOn(s, d), 35, '同一天应累加');
+  eq(s.readLog.length, 1, '同一天只应有一条记录');
+
+  // 另一天单独一条
+  logic.logReading(s, { date: '2026-10-09', minutes: 40 });
+  eq(s.readLog.length, 2);
+  eq(logic.readingMinutesTotal(s), 75, '累计应相加');
+
+  // 非法输入
+  eq(logic.logReading(s, { minutes: 0 }), null, '0 分钟应被拒绝');
+  eq(logic.logReading(s, { minutes: -5 }), null, '负数应被拒绝');
+  eq(logic.readingMinutesOn(s, d), 35, '被拒绝的记录不应改变数据');
+});
+
+test('阅读：本周概览与达标天数', () => {
+  const s = fresh();
+  // 2026-10-08 是周四，本周为 10-05 ~ 10-11
+  const t = '2026-10-08';
+  eq(logic.readingWeekOverview(s, t).length, 7, '本周应固定 7 天');
+  eq(logic.readingWeekOverview(s, t)[0].date, '2026-10-05', '应从周一开始');
+
+  logic.setReadingDailyGoal(s, 30);
+  logic.logReading(s, { date: '2026-10-05', minutes: 30 });
+  logic.logReading(s, { date: '2026-10-06', minutes: 45 });
+  logic.logReading(s, { date: '2026-10-07', minutes: 10 }); // 未达标
+
+  eq(logic.readingWeekGoalDays(s, t), 2, '只有达到目标的两天算达标');
+  const week = logic.readingWeekOverview(s, t);
+  eq(week[0].minutes, 30);
+  eq(week[2].minutes, 10);
+  eq(week[3].isToday, true, '今天应被标出');
+  eq(week[4].minutes, 0, '没读的日子是 0');
+});
+
+test('阅读：每日目标可设置，非法值回落默认且不写坏数据', () => {
+  const s = fresh();
+  eq(logic.getReadingDailyGoal(s), 30, '默认 30 分钟');
+
+  eq(logic.setReadingDailyGoal(s, 45), 45, '应返回生效值');
+  eq(logic.getReadingDailyGoal(s), 45);
+  eq(s.settings.readingDailyGoal, 45, '应写进数据');
+
+  eq(logic.setReadingDailyGoal(s, 0), 30, '0 应回落到默认');
+  eq(logic.setReadingDailyGoal(s, -10), 30, '负数应回落到默认');
+  eq(logic.setReadingDailyGoal(s, 9999), 30, '超过上限应回落');
+  eq(logic.getReadingDailyGoal(s), 30);
+
+  // 手改数据也要能救回来
+  const n = logic.normalizeState({ settings: { readingDailyGoal: 'abc' } });
+  eq(n.settings.readingDailyGoal, 30, '非法值应被规整');
+  const n2 = logic.normalizeState({ settings: { readingDailyGoal: 60 } });
+  eq(n2.settings.readingDailyGoal, 60, '合法值应保留');
+});
+
+test('阅读：笔记可增改删，可关联书与页码', () => {
+  const s = fresh();
+  const b = logic.addBook(s, { title: 'A' });
+
+  const note = logic.addBookNote(s, { text: '  想法一  ', bookId: b.id, page: '42' });
+  eq(note.text, '想法一', '应去掉首尾空格');
+  eq(note.kind, 'note', '默认是想法');
+  eq(note.page, 42, '页码应是数字');
+  eq(note.bookId, b.id);
+  eq(logic.addBookNote(s, { text: '  ' }), null, '空内容应被拒绝');
+
+  const quote = logic.addBookNote(s, { text: '原文', kind: 'quote', bookId: b.id, page: 10 });
+  eq(quote.kind, 'quote');
+
+  // 按页码排序，没页码的排后面
+  const noPage = logic.addBookNote(s, { text: '没页码', bookId: b.id });
+  deepEq(logic.notesOfBook(s, b.id).map((n) => n.text), ['原文', '想法一', '没页码']);
+
+  logic.updateBookNote(s, note.id, { text: '想法改了', page: 5 });
+  eq(note.text, '想法改了');
+  eq(note.page, 5);
+  logic.updateBookNote(s, note.id, { text: '  ' });
+  eq(note.text, '想法改了', '空白内容不应覆盖原内容');
+
+  eq(logic.removeBookNote(s, quote.id).id, quote.id);
+  eq(s.bookNotes.length, 2);
+  eq(logic.removeBookNote(s, '不存在'), null);
+  eq(noPage.id, s.bookNotes[1].id);
+});
+
+test('阅读：删书会连带清掉它的笔记，其他笔记保留', () => {
+  const s = fresh();
+  const a = logic.addBook(s, { title: 'A' });
+  const b = logic.addBook(s, { title: 'B' });
+  logic.addBookNote(s, { text: 'A 的笔记 1', bookId: a.id });
+  logic.addBookNote(s, { text: 'A 的笔记 2', bookId: a.id });
+  logic.addBookNote(s, { text: 'B 的笔记', bookId: b.id });
+  logic.addBookNote(s, { text: '没关联的笔记' });
+
+  logic.removeBook(s, a.id);
+  eq(s.books.length, 1, '只应删掉 A');
+  eq(s.bookNotes.length, 2, 'A 的两条笔记应被清掉');
+  eq(logic.notesOfBook(s, a.id).length, 0);
+  eq(logic.notesOfBook(s, b.id).length, 1, 'B 的笔记不该被误删');
+  ok(s.bookNotes.some((n) => n.text === '没关联的笔记'), '没关联书的笔记也应保留');
+});
+
+test('阅读：概况统计与今日完成度', () => {
+  const s = fresh();
+  const t = '2026-10-08';
+  logic.setReadingDailyGoal(s, 20);
+
+  logic.addBook(s, { title: '在读的', totalPages: 100, currentPage: 40 });
+  logic.addBook(s, { title: '读完的', totalPages: 50, currentPage: 50 });
+  logic.addBook(s, { title: '想读的' });
+  logic.addBookNote(s, { text: '笔记', kind: 'quote' });
+  logic.logReading(s, { date: t, minutes: 12 });
+
+  const st = logic.readingStats(s, t);
+  eq(st.total, 3);
+  eq(st.reading, 1);
+  eq(st.finished, 1);
+  eq(st.want, 1);
+  eq(st.pagesRead, 90, '累计已读页数应为 40 + 50');
+  eq(st.notes, 1);
+  eq(st.quotes, 1);
+  eq(st.minutesToday, 12);
+  eq(st.dailyGoal, 20);
+
+  eq(logic.readingTodayPercent(s, t), 60, '12/20 应为 60%');
+  eq(logic.readingTodayPercent(s, '2026-01-01'), 0, '没读的那天为 0');
+
+  // 超过目标应封顶 100%
+  logic.logReading(s, { date: t, minutes: 100 });
+  eq(logic.readingTodayPercent(s, t), 100, '超过目标应封顶 100%');
+});
+
+test('阅读：推到今日会按剩余页数生成任务', () => {
+  const s = fresh();
+  const b = logic.addBook(s, { title: '置身事内', totalPages: 300, currentPage: 100 });
+  const task = logic.pushBookToToday(s, b.id, '2026-10-08');
+  eq(task.module, 'reading', '应归属阅读模块');
+  eq(task.date, '2026-10-08');
+  ok(task.title.includes('置身事内'), '标题应带书名');
+  ok(task.title.includes('200'), '应带剩余页数：' + task.title);
+
+  // 没填总页数时不提页数
+  const b2 = logic.addBook(s, { title: '随便看看' });
+  const t2 = logic.pushBookToToday(s, b2.id, '2026-10-08');
+  eq(t2.title, '读《随便看看》', '没页数时只说书名');
+});
+
+test('阅读：日历标记显示当天读了多久，图表也纳入阅读', () => {
+  const s = fresh();
+  logic.logReading(s, { date: '2026-10-08', minutes: 35 });
+  logic.logReading(s, { date: '2026-10-09', minutes: 20 });
+
+  const marks = logic.calendarMarks(s, 'reading', 2026, 10);
+  eq(marks['2026-10-08'].extra, '35 分钟', '应标出当天分钟数');
+  eq(marks['2026-10-09'].extra, '20 分钟');
+
+  eq(logic.moduleLabel('reading'), '阅读', '模块中文名');
+
+  // 首页扇形图应能包含阅读模块
+  logic.addTask(s, { title: '读两页', module: 'reading', date: '2026-10-08' });
+  const slices = logic.chartSlices(s, 'all', 'week', '2026-10-08');
+  ok(slices.some((x) => x.key === 'reading'), '汇总图里应出现阅读');
+});
+
+test('阅读：初始状态与规范化都带上阅读字段', () => {
+  const s = fresh();
+  for (const f of ['books', 'readLog', 'bookNotes']) {
+    ok(Array.isArray(s[f]), f + ' 应为数组');
+  }
+  eq(s.settings.readingDailyGoal, 30);
+
+  // 旧数据（没有阅读字段）应被补齐，而不是报错
+  const n = logic.normalizeState({ tasks: [] });
+  deepEq(n.books, []);
+  deepEq(n.readLog, []);
+  deepEq(n.bookNotes, []);
+  eq(n.settings.readingDailyGoal, 30);
+});
+
+test('阅读：新建时就填了已读页数，状态也要立刻正确（回归）', () => {
+  // 之前只有"改书"会推导状态，"加书"不会：新建一本已读到 40/100 的书，
+  // 状态会错误地停在"想读"，统计也跟着不对。
+  const s = fresh();
+
+  const half = logic.addBook(s, { title: '读了一半', totalPages: 100, currentPage: 40 });
+  eq(half.status, 'reading', '新建时已有进度应直接是在读');
+  eq(half.startedAt, date.todayStr(), '应记下开始日期');
+
+  const done = logic.addBook(s, { title: '已经读完', totalPages: 50, currentPage: 50 });
+  eq(done.status, 'finished', '新建时正好读到最后一页应直接是已读完');
+  eq(done.finishedAt, date.todayStr(), '应记下完成日期');
+
+  const over = logic.addBook(s, { title: '写多了', totalPages: 30, currentPage: 999 });
+  eq(over.currentPage, 30, '新建时页码也不应超过总页数');
+  eq(over.status, 'finished');
+
+  const want = logic.addBook(s, { title: '还没开始', totalPages: 100 });
+  eq(want.status, 'want', '没有进度时应仍是想读');
+  eq(want.startedAt, '', '没开始就不该有开始日期');
+
+  // 统计应立刻反映正确状态
+  const st = logic.readingStats(s, '2026-10-08');
+  eq(st.reading, 1, '在读的应有 1 本');
+  eq(st.finished, 2, '已读完的应有 2 本');
+  eq(st.want, 1);
+
+  // 显式指定的状态优先于推导（例如手动标为搁置）
+  const paused = logic.addBook(s, { title: '搁置的', totalPages: 100, currentPage: 30, status: 'paused' });
+  eq(paused.status, 'paused', '手动指定的状态应被尊重');
 });
 
 /* ---------------- 日历聚合 ---------------- */

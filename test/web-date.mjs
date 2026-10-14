@@ -63,7 +63,7 @@ test('date.js 内部不使用 UTC 截取的方式取日期', () => {
 test('前端各模块源码里没有用 toISOString().slice(0,10) 取日期', () => {
   const files = ['app.js', 'store.js', 'logic.js', 'router.js', 'ui.js', 'api.js',
     'views/home.js', 'views/today.js', 'views/dev.js', 'views/study.js',
-    'views/diet.js', 'views/settings.js'];
+    'views/reading.js', 'views/diet.js', 'views/settings.js'];
   for (const f of files) {
     const abs = join(ROOT, 'web', f);
     // 这些文件都是必须存在的：缺文件应当直接报出来，而不是被静默跳过
@@ -219,7 +219,7 @@ test('样式表：括号配对，且 var() 引用的变量都有定义', () => {
   // 核心变量必须存在（缺了会让整页配色失效）
   for (const v of ['--bg', '--panel', '--text', '--text-2', '--text-3',
     '--primary', '--primary-weak', '--line', '--radius', '--shadow',
-    '--m-dev', '--m-study', '--m-diet', '--ok', '--danger', '--warn']) {
+    '--m-dev', '--m-study', '--m-reading', '--m-diet', '--ok', '--danger', '--warn']) {
     ok(defined.has(v), '应定义设计变量 ' + v);
   }
 });
@@ -278,7 +278,7 @@ test('样式表：深色主题下文字与背景的对比度足够（看得清�
   ok(contrast(hexOf('text-3'), bg) >= 4.5, '辅助文字与底色对比度应 ≥ 4.5:1');
 
   // 强调色（主色/警示/危险/成功/模块色）作为文字也要能看清
-  for (const name of ['primary', 'warn', 'danger', 'ok', 'm-dev', 'm-study', 'm-diet']) {
+  for (const name of ['primary', 'warn', 'danger', 'ok', 'm-dev', 'm-study', 'm-reading', 'm-diet']) {
     ok(contrast(hexOf(name), panel) >= 4.5,
       '强调色 --' + name + ' 与卡片对比度应 ≥ 4.5:1（实际 '
       + contrast(hexOf(name), panel).toFixed(2) + '）');

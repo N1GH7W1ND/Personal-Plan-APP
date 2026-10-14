@@ -16,6 +16,7 @@ import homeView from './views/home.js';
 import todayView from './views/today.js';
 import devView from './views/dev.js';
 import studyView from './views/study.js';
+import readingView from './views/reading.js';
 import dietView from './views/diet.js';
 import settingsView from './views/settings.js';
 
@@ -24,6 +25,7 @@ const VIEWS = {
   today: todayView,
   dev: devView,
   study: studyView,
+  reading: readingView,
   diet: dietView,
   settings: settingsView,
 };

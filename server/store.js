@@ -27,8 +27,11 @@ function emptyState() {
     devTasks: [],
     devIdeas: [],
     studyItems: [],
+    books: [],
+    readLog: [],
+    bookNotes: [],
     diet: { meals: {}, recipes: [], shopping: [] },
-    settings: { density: 'comfortable' },
+    settings: { density: 'comfortable', readingDailyGoal: 30 },
   };
 }
 
@@ -72,7 +75,7 @@ function normalize(input) {
   const removedFields = ['media', 'consultTasks', 'consultRecords', 'games', 'playPlan', 'studyLog', 'fitness'];
   for (const f of removedFields) delete out[f];
 
-  const arrFields = ['tasks', 'notes', 'devTasks', 'devIdeas', 'studyItems'];
+  const arrFields = ['tasks', 'notes', 'devTasks', 'devIdeas', 'studyItems', 'books', 'readLog', 'bookNotes'];
   for (const f of arrFields) {
     if (!Array.isArray(out[f])) out[f] = [];
   }
@@ -93,6 +96,9 @@ function normalize(input) {
   if (out.settings.density !== 'compact' && out.settings.density !== 'comfortable') {
     out.settings.density = 'comfortable';
   }
+  // 每日阅读目标：1–480 分钟，非法值回落 30
+  const goal = Number(out.settings.readingDailyGoal);
+  out.settings.readingDailyGoal = Number.isFinite(goal) && goal >= 1 && goal <= 480 ? Math.round(goal) : 30;
 
   out.schemaVersion = 1;
   out.revision = Number.isFinite(out.revision) ? Number(out.revision) : 0;

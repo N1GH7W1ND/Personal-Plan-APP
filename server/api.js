@@ -77,6 +77,8 @@ function statsOf(state) {
     开发待办: (state.devTasks || []).length,
     灵感: (state.devIdeas || []).length,
     学习条目: (state.studyItems || []).length,
+    书: (state.books || []).length,
+    读书笔记: (state.bookNotes || []).length,
     菜谱: (state.diet && state.diet.recipes ? state.diet.recipes.length : 0),
     采买: (state.diet && state.diet.shopping ? state.diet.shopping.length : 0),
   };

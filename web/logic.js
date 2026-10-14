@@ -18,6 +18,7 @@ export const APP_TITLE = '我的工作台';
 export const MODULES = [
   { id: 'dev', name: '开发工作', short: '开发' },
   { id: 'study', name: '学习', short: '学习' },
+  { id: 'reading', name: '阅读', short: '阅读' },
   { id: 'diet', name: '饮食计划', short: '饮食' },
   { id: 'general', name: '通用', short: '通用' },
 ];
@@ -49,6 +50,7 @@ export const NAV_ITEMS = [
   { id: 'today', name: '今日计划', icon: '☑' },
   { id: 'dev', name: '开发工作', icon: '⌘' },
   { id: 'study', name: '学习', icon: '✎' },
+  { id: 'reading', name: '阅读', icon: '❐' },
   { id: 'diet', name: '饮食计划', icon: '◍' },
   { id: 'settings', name: '数据与设置', icon: '⚙' },
 ];
@@ -111,8 +113,11 @@ export function createInitialState() {
     devTasks: [],
     devIdeas: [],
     studyItems: [],
+    books: [],
+    readLog: [],
+    bookNotes: [],
     diet: { meals: {}, recipes: [], shopping: [] },
-    settings: { density: 'comfortable' },
+    settings: { density: 'comfortable', readingDailyGoal: 30 },
   };
 }
 
@@ -161,7 +166,7 @@ export function normalizeState(input) {
   // 先清掉已移除模块的内容，再做字段校正
   purgeRemovedModules(out);
 
-  for (const f of ['tasks', 'notes', 'devTasks', 'devIdeas', 'studyItems']) {
+  for (const f of ['tasks', 'notes', 'devTasks', 'devIdeas', 'studyItems', 'books', 'readLog', 'bookNotes']) {
     if (!Array.isArray(out[f])) out[f] = [];
   }
 
@@ -174,6 +179,9 @@ export function normalizeState(input) {
   // 健身模块移除后，设置里的健身目标也没用了
   delete out.settings.fitnessWeeklyGoal;
   if (out.settings.density !== 'compact' && out.settings.density !== 'comfortable') out.settings.density = 'comfortable';
+  // 每日阅读目标：1–480 分钟，非法值回落 30
+  const goal = Number(out.settings.readingDailyGoal);
+  out.settings.readingDailyGoal = Number.isFinite(goal) && goal >= 1 && goal <= 480 ? Math.round(goal) : 30;
 
   out.schemaVersion = 1;
   out.revision = Number.isFinite(out.revision) ? Number(out.revision) : 0;
@@ -614,6 +622,335 @@ export function unhandledIdeas(state) {
   return state.devIdeas.filter((i) => !i.handled);
 }
 
+/* ============================================================
+   阅读
+   ------------------------------------------------------------
+   三样数据：书（books）、每日阅读分钟（readLog）、读书笔记（bookNotes）。
+   进度以"页"为单位推进，读完自动置为已读完并记下完成日期。
+   ============================================================ */
+
+/** 书的阅读状态 */
+export const BOOK_STATUS = {
+  want: '想读',
+  reading: '在读',
+  finished: '已读完',
+  paused: '搁置',
+};
+export const BOOK_STATUS_ORDER = ['want', 'reading', 'finished', 'paused'];
+
+/** 书的分类 */
+export const BOOK_KINDS = {
+  book: '纸书',
+  ebook: '电子书',
+  audio: '有声书',
+  article: '长文',
+  other: '其他',
+};
+export const BOOK_KIND_ORDER = ['book', 'ebook', 'audio', 'article', 'other'];
+
+/**
+ * 按当前页码校正书的状态与日期。
+ *
+ * 抽成共用函数是因为"加书"和"改书"两个入口都会改到页码：
+ * 只在改书时推导状态，会让"新建时就填了已读页数"的书停在"想读"，两处行为不一致。
+ * 这里是唯一的推导点：谁改了页码都从这里过一遍。
+ */
+function applyBookProgressRules(book) {
+  // 页码不能超过总页数（没填总页数时不设上限）
+  if (book.totalPages > 0) {
+    book.currentPage = Math.min(Math.max(0, book.currentPage), book.totalPages);
+  } else {
+    book.currentPage = Math.max(0, book.currentPage);
+  }
+
+  // 手动标为已读完：页数补满、记完成日期
+  if (book.status === 'finished') {
+    if (book.totalPages > 0) book.currentPage = book.totalPages;
+    if (!book.finishedAt) book.finishedAt = date.todayStr();
+    return book;
+  }
+
+  // 读到最后一页 → 自动已读完
+  if (book.totalPages > 0 && book.currentPage >= book.totalPages) {
+    book.status = 'finished';
+    if (!book.finishedAt) book.finishedAt = date.todayStr();
+    return book;
+  }
+
+  // 有进度但还没读完 → 自动从"想读"转为"在读"，并记下开始日期
+  if (book.status === 'want' && book.currentPage > 0) {
+    book.status = 'reading';
+  }
+  if (book.status === 'reading' && !book.startedAt) {
+    book.startedAt = date.todayStr();
+  }
+  return book;
+}
+
+/** 新增一本书。标题必填，其余可省。 */
+export function addBook(state, input) {
+  const src = typeof input === 'string' ? { title: input } : (input || {});
+  const title = String(src.title == null ? '' : src.title).trim();
+  if (!title) return null;
+
+  const book = {
+    id: src.id || newId('b'),
+    title,
+    author: src.author == null ? '' : String(src.author).trim(),
+    kind: BOOK_KIND_ORDER.includes(src.kind) ? src.kind : 'book',
+    status: BOOK_STATUS_ORDER.includes(src.status) ? src.status : 'want',
+    totalPages: Math.max(0, Math.round(Number(src.totalPages) || 0)),
+    currentPage: Math.max(0, Math.round(Number(src.currentPage) || 0)),
+    rating: Math.min(5, Math.max(0, Math.round(Number(src.rating) || 0))),
+    startedAt: date.isValidDateStr(src.startedAt) ? src.startedAt : '',
+    finishedAt: date.isValidDateStr(src.finishedAt) ? src.finishedAt : '',
+    note: src.note == null ? '' : String(src.note),
+    createdAt: src.createdAt || date.nowIso(),
+    updatedAt: date.nowIso(),
+  };
+  // 新建时可能已经填了"已读到第几页"，同样要按规则推导状态
+  applyBookProgressRules(book);
+  state.books.push(book);
+  return book;
+}
+
+export function findBook(state, id) {
+  return state.books.find((b) => b.id === id) || null;
+}
+
+export function updateBook(state, id, patch) {
+  const book = findBook(state, id);
+  if (!book) return null;
+  const p = patch || {};
+
+  if (p.title != null) {
+    const title = String(p.title).trim();
+    if (title) book.title = title;
+  }
+  if (p.author != null) book.author = String(p.author).trim();
+  if (p.kind != null && BOOK_KIND_ORDER.includes(p.kind)) book.kind = p.kind;
+  if (p.status != null && BOOK_STATUS_ORDER.includes(p.status)) book.status = p.status;
+  if (p.note != null) book.note = String(p.note);
+  if (p.startedAt != null) book.startedAt = date.isValidDateStr(p.startedAt) ? p.startedAt : '';
+  if (p.finishedAt != null) book.finishedAt = date.isValidDateStr(p.finishedAt) ? p.finishedAt : '';
+  if (p.rating != null) book.rating = Math.min(5, Math.max(0, Math.round(Number(p.rating) || 0)));
+
+  if (p.totalPages != null) {
+    book.totalPages = Math.max(0, Math.round(Number(p.totalPages) || 0));
+  }
+  if (p.currentPage != null) {
+    book.currentPage = Math.max(0, Math.round(Number(p.currentPage) || 0));
+  }
+
+  // 状态与日期的推导统一走共用规则（与"加书"保持同一套行为）
+  applyBookProgressRules(book);
+
+  book.updatedAt = date.nowIso();
+  return book;
+}
+
+export function removeBook(state, id) {
+  const i = state.books.findIndex((b) => b.id === id);
+  if (i === -1) return null;
+  const [removed] = state.books.splice(i, 1);
+  // 这本书的笔记一并清掉，避免留下找不到主人的孤儿笔记
+  state.bookNotes = state.bookNotes.filter((n) => n.bookId !== id);
+  return removed;
+}
+
+/** 读完比例（0–100）。没填总页数时按 0 处理。 */
+export function bookProgress(book) {
+  if (!book || !book.totalPages) return 0;
+  const p = Math.round((book.currentPage / book.totalPages) * 100);
+  return Math.min(100, Math.max(0, p));
+}
+
+/** 还剩多少页 */
+export function bookPagesLeft(book) {
+  if (!book || !book.totalPages) return 0;
+  return Math.max(0, book.totalPages - book.currentPage);
+}
+
+/** 按状态分组 */
+export function booksByStatus(state) {
+  const groups = {};
+  for (const s of BOOK_STATUS_ORDER) groups[s] = [];
+  for (const b of state.books) {
+    if (!groups[b.status]) groups[b.status] = [];
+    groups[b.status].push(b);
+  }
+  return groups;
+}
+
+/** 推进阅读进度：按页前进（可为负），到顶自动标为已读完 */
+export function advanceBookPage(state, id, pages) {
+  const book = findBook(state, id);
+  if (!book) return null;
+  const step = Math.round(Number(pages) || 0);
+  if (!step) return book;
+  const from = book.currentPage;
+  const to = Math.max(0, from + step);
+  return updateBook(state, id, { currentPage: to });
+}
+
+/** 记录一次阅读：写进 readLog（同一天可累加），并可同时推进页码 */
+export function logReading(state, input) {
+  const src = input || {};
+  const day = date.isValidDateStr(src.date) ? src.date : date.todayStr();
+  const minutes = Math.round(Number(src.minutes) || 0);
+  if (minutes <= 0) return null;
+
+  let entry = state.readLog.find((r) => r.date === day);
+  if (!entry) {
+    entry = { id: newId('r'), date: day, minutes: 0 };
+    state.readLog.push(entry);
+  }
+  entry.minutes += minutes;
+  if (src.bookId) entry.bookId = src.bookId;
+
+  if (src.bookId && src.pages) advanceBookPage(state, src.bookId, src.pages);
+  return entry;
+}
+
+export function removeReadLog(state, id) {
+  const i = state.readLog.findIndex((r) => r.id === id);
+  if (i === -1) return null;
+  const [removed] = state.readLog.splice(i, 1);
+  return removed;
+}
+
+/** 某天的阅读分钟数 */
+export function readingMinutesOn(state, day) {
+  const d = day || date.todayStr();
+  return state.readLog
+    .filter((r) => r.date === d)
+    .reduce((n, r) => n + (Number(r.minutes) || 0), 0);
+}
+
+/** 累计阅读分钟 */
+export function readingMinutesTotal(state) {
+  return state.readLog.reduce((n, r) => n + (Number(r.minutes) || 0), 0);
+}
+
+/** 本周每天的阅读分钟（周一起 7 天），用于本周概览 */
+export function readingWeekOverview(state, today) {
+  const t = today || date.todayStr();
+  return date.weekDates(t).map((day) => ({
+    date: day,
+    minutes: readingMinutesOn(state, day),
+    isToday: day === t,
+  }));
+}
+
+/** 本周达标天数（达到每日目标算一天） */
+export function readingWeekGoalDays(state, today) {
+  const goal = Number(state.settings.readingDailyGoal) || 30;
+  return readingWeekOverview(state, today).filter((d) => d.minutes >= goal).length;
+}
+
+/** 每日阅读目标（分钟），非法值回落 30 */
+export function getReadingDailyGoal(state) {
+  const v = Number(state.settings && state.settings.readingDailyGoal);
+  return Number.isFinite(v) && v >= 1 && v <= 480 ? Math.round(v) : 30;
+}
+
+/** 设置每日阅读目标，返回实际生效的值 */
+export function setReadingDailyGoal(state, n) {
+  const v = Math.round(Number(n) || 0);
+  const applied = v >= 1 && v <= 480 ? v : 30;
+  state.settings.readingDailyGoal = applied;
+  return applied;
+}
+
+/* ---- 书摘与笔记 ---- */
+
+export function addBookNote(state, input) {
+  const src = input || {};
+  const text = String(src.text == null ? '' : src.text).trim();
+  if (!text) return null;
+  const note = {
+    id: src.id || newId('bn'),
+    bookId: src.bookId || '',
+    page: Math.max(0, Math.round(Number(src.page) || 0)),
+    text,
+    kind: src.kind === 'quote' ? 'quote' : 'note', // 摘抄 / 想法
+    createdAt: src.createdAt || date.nowIso(),
+    updatedAt: date.nowIso(),
+  };
+  state.bookNotes.push(note);
+  return note;
+}
+
+export function findBookNote(state, id) {
+  return state.bookNotes.find((n) => n.id === id) || null;
+}
+
+export function updateBookNote(state, id, patch) {
+  const note = findBookNote(state, id);
+  if (!note) return null;
+  const p = patch || {};
+  if (p.text != null) {
+    const text = String(p.text).trim();
+    if (text) note.text = text;
+  }
+  if (p.page != null) note.page = Math.max(0, Math.round(Number(p.page) || 0));
+  if (p.kind != null) note.kind = p.kind === 'quote' ? 'quote' : 'note';
+  if (p.bookId != null) note.bookId = String(p.bookId);
+  note.updatedAt = date.nowIso();
+  return note;
+}
+
+export function removeBookNote(state, id) {
+  const i = state.bookNotes.findIndex((n) => n.id === id);
+  if (i === -1) return null;
+  const [removed] = state.bookNotes.splice(i, 1);
+  return removed;
+}
+
+/** 某本书的笔记（按页码排序，没页码的排后面） */
+export function notesOfBook(state, bookId) {
+  return state.bookNotes
+    .filter((n) => n.bookId === bookId)
+    .sort((a, b) => (a.page || 99999) - (b.page || 99999));
+}
+
+/** 阅读概况统计 */
+export function readingStats(state, today) {
+  const t = today || date.todayStr();
+  const finished = state.books.filter((b) => b.status === 'finished');
+  const pagesRead = state.books.reduce((n, b) => n + (Number(b.currentPage) || 0), 0);
+  return {
+    total: state.books.length,
+    reading: state.books.filter((b) => b.status === 'reading').length,
+    want: state.books.filter((b) => b.status === 'want').length,
+    finished: finished.length,
+    paused: state.books.filter((b) => b.status === 'paused').length,
+    pagesRead,
+    notes: state.bookNotes.length,
+    quotes: state.bookNotes.filter((n) => n.kind === 'quote').length,
+    minutesTotal: readingMinutesTotal(state),
+    minutesToday: readingMinutesOn(state, t),
+    dailyGoal: Number(state.settings.readingDailyGoal) || 30,
+    weekGoalDays: readingWeekGoalDays(state, t),
+  };
+}
+
+/** 今日阅读目标完成度（0–100） */
+export function readingTodayPercent(state, today) {
+  const goal = Number(state.settings.readingDailyGoal) || 30;
+  const done = readingMinutesOn(state, today);
+  return Math.min(100, Math.round((done / goal) * 100));
+}
+
+/** 把一本在读的书推到今天的任务清单 */
+export function pushBookToToday(state, id, day) {
+  const book = findBook(state, id);
+  if (!book) return null;
+  const left = bookPagesLeft(book);
+  const title = left > 0 ? '读《' + book.title + '》' + left + ' 页' : '读《' + book.title + '》';
+  return addTask(state, { title, module: 'reading', date: day || date.todayStr() });
+}
+
 
 /* ============================================================
    饮食
@@ -752,6 +1089,7 @@ export function setDensity(state, value) {
 const MODULE_LABELS = {
   dev: '开发工作',
   study: '学习',
+  reading: '阅读',
   diet: '饮食计划',
   general: '通用',
 };
@@ -814,6 +1152,17 @@ export function calendarMarks(state, moduleId, year, month) {
       if (planned === 0) continue;
       const m = ensure(day);
       m.extra = '三餐已定 ' + planned + '/3';
+    }
+  }
+
+  // 阅读：该月每天的阅读分钟数
+  if (moduleId === 'reading') {
+    for (const entry of state.readLog || []) {
+      if (!entry || !entry.date || !entry.date.startsWith(prefix)) continue;
+      const mins = Number(entry.minutes) || 0;
+      if (mins <= 0) continue;
+      const m = ensure(entry.date);
+      m.extra = mins + ' 分钟';
     }
   }
 
@@ -988,6 +1337,7 @@ export function chartSlices(state, moduleId, rangeKey, today) {
   const colors = {
     dev: 'var(--m-dev)',
     study: 'var(--m-study)',
+    reading: 'var(--m-reading)',
     diet: 'var(--m-diet)',
     general: 'var(--m-general)',
   };
