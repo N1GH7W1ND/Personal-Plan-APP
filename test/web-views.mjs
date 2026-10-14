@@ -1223,6 +1223,64 @@ test('左侧栏配置会落盘，刷新后仍然生效', async () => {
   }
 });
 
+test('首页：不再有「待你处理」，位置并给快速备忘（R23）', async () => {
+  try {
+    await go('home');
+    assertNoViewError();
+
+    // 1) 区块删掉了
+    notOk(view().innerHTML.includes('待你处理'), '首页不该再有「待你处理」');
+    notOk(view().innerHTML.includes('需要你现在做决定的事'), '不该再有它的副标题');
+    eq(findByAct(view(), 'summary-go').length, 0, '不该再有摘要跳转按钮');
+
+    // 2) 快速备忘还在，并且带了整列样式
+    const noteCard = view().querySelector('.note-card-full');
+    ok(noteCard, '快速备忘应有整列样式（占了原来「待你处理」的位置）');
+    ok(noteCard.querySelector('[data-field="note-input"]'), '快速备忘的输入框还在');
+    ok(view().innerHTML.includes('快速备忘'), '标题仍应是快速备忘');
+
+    // 3) 位置：备忘在汇总图表之前（占住原来那块位置）
+    const html = view().innerHTML;
+    ok(html.indexOf('快速备忘') < html.indexOf('各模块汇总'),
+      '快速备忘应在汇总图表之前');
+  } finally {
+    await resetAfterTest();
+  }
+});
+
+test('首页的快速备忘不归属任何板块（R23）', async () => {
+  try {
+    await go('home');
+    const input = view().querySelector('[data-field="note-input"]');
+    ok(input, '应有快速备忘输入框');
+
+    // 界面上不该要求选板块
+    const noteCard = view().querySelector('.note-card-full');
+    eq(noteCard.querySelector('[data-field="module"]'), null,
+      '快速备忘不该有板块选择框');
+
+    // 存一条：数据里不该带 module，也不该算进任何板块
+    input.typeAndEnter('买猫粮');
+    await waitRender();
+
+    const notes = store.getState().notes;
+    eq(notes.length, 1, '应存下这条备忘');
+    eq(notes[0].text, '买猫粮');
+    notOk('module' in notes[0], '备忘数据里不该有 module 字段');
+
+    const today = date.todayStr();
+    const byModule = logic.pendingByModule(store.getState(), today);
+    for (const id of logic.NAV_MODULE_CHOICES) {
+      eq(byModule[id] || 0, 0, '备忘不该算进「' + logic.moduleName(id) + '」的欠账');
+    }
+
+    // 也不该出现在今日计划（备忘是独立的一份数据）
+    eq(logic.tasksOn(store.getState(), today).length, 0, '备忘不该变成任务');
+  } finally {
+    await resetAfterTest();
+  }
+});
+
 test('左侧导航的文字与顺序（开发/饮食用简称）', async () => {
   await go('home');
   const navEl = dom.document.getElementById('nav');

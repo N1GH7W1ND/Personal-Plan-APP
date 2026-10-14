@@ -2019,6 +2019,32 @@ a { color: var(--primary); text-decoration: none; }
   .home-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
+/*
+ * 快速备忘：占了右列整列（原来这里还有「待你处理」，那块按本人要求删了）。
+ * 备忘多了就在卡片内滚动，不会把左侧的计划区拖长。
+ */
+.note-card-full {
+  display: flex;
+  flex-direction: column;
+  min-height: 340px;
+}
+
+/* 卡片体撑满剩余高度，列表再在内部滚动 */
+.note-card-full > .card-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* 备忘多时列表自己滚动，不会把卡片越撑越长 */
+.note-card-full .note-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 46vh;
+  overflow-y: auto;
+  padding-right: 3px;
+}
 .summary-item {
   display: flex;
   align-items: flex-start;
@@ -2030,7 +2056,33 @@ a { color: var(--primary); text-decoration: none; }
 }
 
 .summary-item:hover { background: #f6f8fc; border-color: var(--line); }
-.summary-item + .summary-item { margin-top: 2px; }
+.summary-item + /*
+ * 快速备忘：占了右列整列（原来这里还有「待你处理」，那块按本人要求删了）。
+ * 备忘多了就在卡片内滚动，不会把左侧的计划区拖长。
+ */
+.note-card-full {
+  display: flex;
+  flex-direction: column;
+  min-height: 340px;
+}
+
+/* 卡片体撑满剩余高度，列表再在内部滚动 */
+.note-card-full > .card-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* 备忘多时列表自己滚动，不会把卡片越撑越长 */
+.note-card-full .note-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 46vh;
+  overflow-y: auto;
+  padding-right: 3px;
+}
+.summary-item { margin-top: 2px; }
 
 .summary-dot {
   width: 7px; height: 7px;

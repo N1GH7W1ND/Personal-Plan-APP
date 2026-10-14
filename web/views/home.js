@@ -1,6 +1,7 @@
 /**
  * 首页总览。
- * 从上到下：今日计划（主角）→ 快速补一条 → 逾期折叠 → 快速备忘 → 待你处理。
+ * 从上到下：今日计划（主角）→ 快速补一条 → 逾期折叠 → 快速备忘（占了整列）。
+ * 「待你处理」按本人要求已删除，腾出的位置并入快速备忘。
  *
  * 设计约束（见 PRD 3.4）：首页只显示"你亲手安排的事"，
  * 不出现任何系统自动生成的任务或推荐入口。
@@ -46,28 +47,23 @@ export default {
       body: ui.quickAddRow({ modules: logic.quickAddModules(state) }),
     });
 
-    /* ---- 快速备忘 ---- */
+    /* ---- 快速备忘 ----
+     * 按本人要求：「待你处理」整块删除，它占的位置并给快速备忘。
+     * 备忘不属于任何板块（数据里也没有 module 字段），
+     * 这里给它整列高度，列表长了就在卡片内滚动。
+     */
     const notes = state.notes.slice().sort((a, b) => (a.done === b.done ? 0 : a.done ? 1 : -1));
+    const openNotes = state.notes.filter((n) => !n.done).length;
     const noteCard = ui.card({
       title: '快速备忘',
-      sub: state.notes.filter((n) => !n.done).length + ' 条待办',
+      sub: openNotes ? openNotes + ' 条待办' : '想到什么随手记，不归属任何板块',
+      className: 'note-card-full',
       body:
         '<div class="note-add">' +
         '<input class="input" type="text" data-field="note-input" placeholder="随手记点什么，回车即存">' +
         '</div><div style="height:10px"></div>' +
         ui.noteList(notes),
     });
-
-    /* ---- 待你处理（无内容时整块隐藏） ---- */
-    const summary = logic.homeSummary(state, today);
-    const summaryCard = summary.length
-      ? ui.card({
-        title: '待你处理',
-        sub: '需要你现在做决定的事',
-        tight: true,
-        body: ui.summaryList(summary),
-      })
-      : '';
 
     /* ---- 全模块汇总图表 ---- */
     const chartCard = ui.card({
@@ -78,7 +74,7 @@ export default {
 
     return '<div class="home-grid">' +
       '<div>' + todayCard + quickCard + '</div>' +
-      '<div>' + noteCard + summaryCard + '</div>' +
+      '<div>' + noteCard + '</div>' +
       '</div>' +
       chartCard;
   },

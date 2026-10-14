@@ -158,7 +158,7 @@ test('开发：灵感点「变成待办」后进入待办列表，灵感箱不�
   notOk(findByActAndId(view(), 'idea-to-task', idea.id), '界面上也不应再有这条灵感');
 });
 
-test('开发：灵感箱达到 3 条时首页摘要提醒', async () => {
+test('开发：灵感箱达到 3 条时，摘要逻辑仍会记账（但首页不再显示该区块）', async () => {
   await go('dev');
   store.dispatch((s) => {
     logic.addDevIdea(s, '灵感甲');
@@ -167,8 +167,17 @@ test('开发：灵感箱达到 3 条时首页摘要提醒', async () => {
   });
   await waitRender();
 
+  /*
+   * 「待你处理」区块按本人要求已从首页删除，所以界面里看不到它了。
+   * 但摘要的计算逻辑保留着（阅读目标、健身提醒等都还在用它），
+   * 这里改为直接验证逻辑层，并确认首页确实不再出现那个区块。
+   */
+  const sum = logic.homeSummary(store.getState(), date.todayStr());
+  ok(sum.some((x) => x.key === 'dev-ideas'), '摘要逻辑里仍应认出灵感箱堆积');
+
   await go('home');
-  ok(view().innerHTML.includes('灵感箱堆积'), '首页应提醒灵感箱堆积');
+  assertNoViewError();
+  notOk(view().innerHTML.includes('待你处理'), '首页不该再有「待你处理」区块');
 });
 
 test('开发：推送到今日生成开发任务', async () => {
