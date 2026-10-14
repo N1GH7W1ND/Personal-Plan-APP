@@ -41,7 +41,7 @@ function listFiles(dir, base) {
 /* ---------------- 发布模板 ---------------- */
 
 t.test('发布模板齐全：用户版的启动器与说明都有源文件', async () => {
-  const need = ['开始.cmd', '停止.cmd', 'README-FIRST.md', '运行测试.cmd', 'selfcheck.cjs'];
+  const need = ['开始.cmd', '停止.cmd', '用户使用说明（必看！）.md', '运行测试.cmd', 'selfcheck.cjs'];
   for (const name of need) {
     t.ok(fs.existsSync(path.join(TPL, name)), '发布模板里应有 ' + name);
   }
@@ -77,7 +77,7 @@ t.test('一致性检查真的能发现差异（回归：改一个字节就要报
 
 t.test('用户使用版的目录结构：该有的都在正确位置', async () => {
   const files = listFiles(DIST);
-  for (const name of ['开始.cmd', '停止.cmd', 'README-FIRST.md', '运行测试.cmd', 'selfcheck.cjs', '版本信息.txt']) {
+  for (const name of ['开始.cmd', '停止.cmd', '用户使用说明（必看！）.md', '运行测试.cmd', 'selfcheck.cjs', '版本信息.txt']) {
     t.ok(files.includes(name), '用户版根目录应有 ' + name);
   }
   t.ok(files.includes('server/index.js'), '应有 server/index.js');
@@ -156,7 +156,7 @@ t.test('用户使用版里每个相对依赖都能找到文件（不会缺件）
  * 实测对比：同一份 开始.cmd，只把中文去掉，就恢复正常启动。
  *
  * 所以：.cmd 里（包括 echo 里）一个非 ASCII 字符都不能有。
- * 给用户看的中文一律放在 README-FIRST.md 里，并且 .cmd 引用的文件名也必须是 ASCII。
+ * 给用户看的中文一律放在 用户使用说明（必看！）.md 里，并且 .cmd 引用的文件名也必须是 ASCII。
  */
 t.test('.cmd 必须是纯 ASCII（实测：非 ASCII 会让窗口一闪就退，连 pause 都到不了）', async () => {
   for (const name of ['开始.cmd', '停止.cmd', '运行测试.cmd']) {
@@ -167,27 +167,60 @@ t.test('.cmd 必须是纯 ASCII（实测：非 ASCII 会让窗口一闪就退，
     }
     t.deepEq(bad.slice(0, 5), [],
       name + ' 里有非 ASCII 字节（从第 ' + (bad[0] !== undefined ? bad[0] : '-') + ' 字节开始）：' +
-      '这会让 cmd 解析失败、窗口闪退，必须改成英文或把内容挪到 README-FIRST.md');
+      '这会让 cmd 解析失败、窗口闪退，必须改成英文或把内容挪到 用户使用说明（必看！）.md');
   }
 });
 
-t.test('.cmd 结构合法，且引用的文件名都是 ASCII', async () => {
+t.test('.cmd 结构合法，且引用的文件名都是 ASCII（通配符不算文件名）', async () => {
   for (const name of ['开始.cmd', '停止.cmd', '运行测试.cmd']) {
     const src = fs.readFileSync(path.join(DIST, name), 'utf8');
     t.ok(src.startsWith('@echo off'), name + ' 应以 @echo off 开头');
     t.ok(/exit \/b|pause/i.test(src), name + ' 应以 exit /b 或 pause 收尾（别闪一下就没了）');
-    // 所有被引用的文件名（带引号的、带扩展名的）都必须是 ASCII
+    /*
+     * 引用的具体文件名（带引号、带扩展名）必须是 ASCII。
+     * 说明文件是用 *.md 通配符找的，那种不含非 ASCII，会自然通过。
+     */
     const refs = src.match(/"[^"]*\.(md|cjs|js|exe|cmd)"/gi) || [];
     const badRefs = refs.filter((r) => /[^\x00-\x7F]/.test(r));
     t.deepEq(badRefs, [], name + ' 引用的文件名里不该有非 ASCII：' + badRefs.join(', '));
+    // 通配符写法本身也要在（说明文件靠它找到）
+    if (name === '开始.cmd') {
+      t.includes(src, '*.md', '应有一处用通配符查找说明文件');
+    }
   }
 });
 
-t.test('启动器缺 Node 时指向的说明文件真实存在', async () => {
+t.test('启动器用通配符找说明文件，不把中文名写进脚本（否则会闪退）', async () => {
   const start = fs.readFileSync(path.join(DIST, '开始.cmd'), 'utf8');
-  const m = /start\s+""\s+"%~dp0([^"]+)"/.exec(start);
-  t.ok(m, '开始.cmd 里应有 start "" "%~dp0<文件>" 来帮用户打开说明');
-  t.ok(fs.existsSync(path.join(DIST, m[1])), '它指向的 ' + m[1] + ' 应真实存在');
+  /*
+   * 背景：说明文件叫「用户使用说明（必看！）.md」，是中文名。
+   * 如果把这个名字写进 .cmd，cmd 在 chcp 之前用 GBK 解析就会失败、
+   * 窗口一闪就退（实测过）。所以改成用 *.md 通配符自己找。
+   */
+  t.ok(/for %%f in \("%~dp0\*\.md"\)/.test(start),
+    '缺 Node 时应靠通配符 *.md 找说明文件');
+  t.includes(start, 'start "" "%%f"', '应把找到的那个文件打开');
+  t.notOk(start.includes('用户使用说明'), '不该把说明文件的中文名写进 .cmd');
+  /*
+   * 只盯"被写死的文件名"（形如 xxx.md / README / GUIDE.md），
+   * 不盯标签名（脚本里有个 :guide_opened 跳转标签，那是允许的）。
+   */
+  const code = start.replace(/^\s*rem.*$/gim, '');
+  t.notOk(/\bREADME\b|GUIDE\.md|说明\.md/i.test(code),
+    '代码行里不该写死说明文件名');
+  t.notOk(/\b\w+\.md\b/.test(code), '代码行里不该出现任何具体的 .md 文件名');
+});
+
+t.test('用户版目录里恰好只有一个 .md，且就是那份说明（通配符查找的前提）', async () => {
+  const mds = fs.readdirSync(DIST).filter((f) => /\.md$/i.test(f));
+  t.eq(mds.length, 1,
+    '这个目录里必须只有一个 .md —— 启动器用 *.md 找说明，多一个就会打开错的那个');
+  t.eq(mds[0], '用户使用说明（必看！）.md', '那一个应该是说明文件');
+
+  // 文件名与内容要对得上，免得用户找不到
+  const g = fs.readFileSync(path.join(DIST, mds[0]), 'utf8');
+  t.includes(g, '必看', '说明文件里应提到必看');
+  t.includes(g, '打开方式', '应告诉用户怎么打开它');
 });
 t.test('用户版里没有任何 .ps1（按本人要求：不做自动安装）', async () => {
   const files = fs.readdirSync(DIST);
@@ -259,8 +292,9 @@ t.test('启动器绝不自动下载或安装 Node（按本人要求）', async (
   t.ok(start.split('\n').every((l) => !/nodejs\.org/i.test(l) || /^\s*echo\b/i.test(l)),
     'nodejs.org 只应出现在 echo（给人看的指引）里');
 
-  // 但必须把人指向说明文件，不能只说"找不到"就完事
-  t.includes(start, 'README-FIRST.md', '缺 Node 时应指向用户使用说明');
+  // 但必须把人引到说明文件去，不能只说"找不到"就完事
+  t.ok(/for %%f in \("%~dp0\*\.md"\)/.test(start),
+    '缺 Node 时应靠通配符打开说明文件（而不是把中文名写进脚本）');
   t.includes(start, 'nodejs.org', '缺 Node 时应给出官网地址作为最简指引');
 
   // 用户版里不该出现任何安装脚本
@@ -272,8 +306,8 @@ t.test('启动器绝不自动下载或安装 Node（按本人要求）', async (
  * Node 的下载改由"说明文件"承担，所以这里检查的是说明写得够不够具体。
  * 本人要求：越具体越好、当作电脑小白、作为独立模块。
  */
-t.test('README-FIRST里的 Node 下载模块写得到位（当作小白来教）', async () => {
-  const guide = fs.readFileSync(path.join(DIST, 'README-FIRST.md'), 'utf8');
+t.test('用户使用说明（必看！）里的 Node 下载模块写得到位（当作小白来教）', async () => {
+  const guide = fs.readFileSync(path.join(DIST, '用户使用说明（必看！）.md'), 'utf8');
 
   // 必须是独立的"第一部分"，而不是夹在别处的一句
   t.includes(guide, '# 第一部分：第一次使用前的准备', '应有独立的第一部分');
@@ -307,11 +341,11 @@ t.test('README-FIRST里的 Node 下载模块写得到位（当作小白来教）
 
   // 常见问题要有对应条目
   t.includes(guide, 'Node.js was not found', '应把启动器会打印的原文抄进排错表');
-  t.notOk(/winget|choco|scoop/i.test(guide), 'README-FIRST里不该让小白碰命令行包管理器');
+  t.notOk(/winget|choco|scoop/i.test(guide), '用户使用说明（必看！）里不该让小白碰命令行包管理器');
 });
 
-t.test('README-FIRST里不该出现任何"自动安装"的承诺', async () => {
-  const guide = fs.readFileSync(path.join(DIST, 'README-FIRST.md'), 'utf8');
+t.test('用户使用说明（必看！）里不该出现任何"自动安装"的承诺', async () => {
+  const guide = fs.readFileSync(path.join(DIST, '用户使用说明（必看！）.md'), 'utf8');
   t.notOk(/自动下载|自动安装|会自动装好/.test(guide),
     '不该承诺自动安装（按本人要求：由用户自己装一次）');
   t.includes(guide, '只做一次', '应说明这件事只需做一次');
@@ -335,7 +369,7 @@ t.test('用户使用版能真正启动：跑一次它自带的自检', async () 
 });
 
 t.test('用户使用说明写的是"给人看的话"，不是照搬 README', async () => {
-  const guide = fs.readFileSync(path.join(DIST, 'README-FIRST.md'), 'utf8');
+  const guide = fs.readFileSync(path.join(DIST, '用户使用说明（必看！）.md'), 'utf8');
   const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
 
   t.includes(guide, '第一次使用前的准备', '应有"第一次使用前的准备"这一部分');
@@ -350,17 +384,17 @@ t.test('用户使用说明写的是"给人看的话"，不是照搬 README', asy
    * 说明书里提一句是正常的。要拦的是「让用户去敲命令行」。
    */
   for (const cmd of ['npm install', 'npm run', 'node test', 'git clone', 'git commit']) {
-    t.notOk(guide.includes(cmd), 'README-FIRST里不该让小白敲命令行：' + cmd);
+    t.notOk(guide.includes(cmd), '用户使用说明（必看！）里不该让小白敲命令行：' + cmd);
   }
   for (const word of ['PRD', 'DEV-PLAN', '提交', '仓库']) {
-    t.notOk(guide.includes(word), 'README-FIRST里不该出现开发向的词：' + word);
+    t.notOk(guide.includes(word), '用户使用说明（必看！）里不该出现开发向的词：' + word);
   }
   // 与 README 的重复程度要低（不是照搬）
   const guideLines = guide.split('\n').map((s) => s.trim()).filter((s) => s.length > 12);
   const readmeSet = new Set(readme.split('\n').map((s) => s.trim()));
   const same = guideLines.filter((s) => readmeSet.has(s));
   t.ok(same.length <= 2,
-    'README-FIRST与 README 雷同的长句不应超过 2 条，实际 ' + same.length + ' 条：' + same.slice(0, 3).join(' / '));
+    '用户使用说明（必看！）与 README 雷同的长句不应超过 2 条，实际 ' + same.length + ' 条：' + same.slice(0, 3).join(' / '));
 });
 
 /* ---------------- 从 Git 历史取原件 ---------------- */

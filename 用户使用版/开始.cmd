@@ -42,9 +42,9 @@ if not defined NODE_EXE (
 )
 
 rem ---- 3) nothing found: stop and explain ----
-rem  The guide file is README-FIRST.md. Its name is deliberately ASCII:
-rem  a Chinese file name would have to be typed into this batch file as
-rem  non-ASCII bytes, which is exactly what breaks cmd parsing.
+rem  The guide file is found with a wildcard, NOT written here by name.
+rem  That way its name can be Chinese (it is). Writing a Chinese name
+rem  into this file would break cmd parsing - see the note at the top.
 if not defined NODE_EXE (
   echo   [ERROR] Node.js was not found on this computer.
   echo.
@@ -52,12 +52,18 @@ if not defined NODE_EXE (
   echo   free and takes a few minutes - you only do it once.
   echo.
   echo   Step-by-step instructions ^(in Chinese^) are in the guide
-  echo   README-FIRST.md in this folder. Opening it now...
+  echo   file in this folder. Opening it now...
   echo.
-  start "" "%~dp0README-FIRST.md"
+  rem  Find the guide by extension so its name never has to be written
+  rem  here as non-ASCII bytes.
+  for %%f in ("%~dp0*.md") do (
+    start "" "%%f"
+    goto :guide_opened
+  )
+  :guide_opened
   echo.
-  echo   If nothing opened: right-click README-FIRST.md, choose
-  echo   "Open with", then Notepad.
+  echo   If nothing opened: right-click the .md file in this folder,
+  echo   choose "Open with", then Notepad.
   echo.
   echo   Short version:
   echo     1. Open https://nodejs.org/en/download
