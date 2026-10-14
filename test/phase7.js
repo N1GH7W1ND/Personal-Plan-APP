@@ -164,6 +164,81 @@ t.test('README 里的关键说法与实际一致', async () => {
   t.notIncludes(readme, '手机端可用', 'README 不应宣称支持手机端');
 });
 
+t.test('README 有给人看的四块基本内容', async () => {
+  const readme = read('README.md');
+  /*
+   * 本人要求：README 必须包含这四块，且与真实功能一致。
+   * 这里只查"有没有"，内容准确性由下面几条断言守着。
+   */
+  for (const [label, kw] of [
+    ['项目解决什么问题', '它解决什么问题'],
+    ['主要功能', '主要功能'],
+    ['安装方法', '安装方法'],
+    ['使用方法', '使用方法'],
+  ]) {
+    t.includes(readme, kw, 'README 应有「' + label + '」这一部分');
+  }
+  // 安装部分必须讲清唯一的依赖是 Node.js
+  t.includes(readme, 'Node.js', 'README 应说明需要 Node.js');
+  t.includes(readme, 'nodejs.org', 'README 应给出 Node.js 下载地址');
+});
+
+t.test('README 的功能清单与代码一致（防止文档与实现脱节）', async () => {
+  const readme = read('README.md');
+  const logic = read('web/logic.js');
+  const ui = read('web/ui.js');
+
+  const grab = (src, name) => {
+    const m = new RegExp('export const ' + name + ' = \\{([\\s\\S]*?)\\}').exec(src);
+    return m ? m[1] : '';
+  };
+
+  /*
+   * 这几组"档位名"以前漏写过（README 只说"强度"两个字，没列具体档位），
+   * 所以逐项核对：代码里有几档，README 就得写全几档。
+   */
+  const groups = [
+    ['开发待办状态', grab(logic, 'DEV_STATUS')],
+    ['学习类型', grab(logic, 'STUDY_KINDS')],
+    ['学习状态', grab(logic, 'STUDY_STATUS')],
+    ['书籍状态', grab(logic, 'BOOK_STATUS')],
+    ['笔记类型', grab(logic, 'NOTE_KINDS')],
+    ['训练强度', grab(logic, 'FITNESS_INTENSITY')],
+  ];
+  for (const [label, body] of groups) {
+    t.ok(body, '应能从逻辑层取到 ' + label);
+    const labels = [...body.matchAll(/'([^']+)'/g)].map((m) => m[1])
+      .filter((s) => !/^[a-z]+$/.test(s));   // 丢掉英文 key，只留中文名
+    for (const name of labels) {
+      t.includes(readme, name, label + ' 的「' + name + '」应写进 README');
+    }
+  }
+
+  // 优先级四档也要全
+  const prio = /export const PRIORITY = \{([\s\S]*?)\n\};/.exec(logic);
+  if (prio) {
+    for (const m of prio[1].matchAll(/label: '([^']+)'/g)) {
+      t.includes(readme, m[1], '优先级的「' + m[1] + '」应写进 README');
+    }
+  }
+});
+
+t.test('README 不再保留已经改掉/删掉的旧说法', async () => {
+  const readme = read('README.md');
+  /*
+   * 这些都是真实发生过的"文档滞后"：
+   *   · 设置页的「偏好设置」整块已删除，README 不能再教用户去那里改目标
+   *   · 首页的「待你处理」已删除
+   *   · 导航不再是"固定 8 个入口"，中间的板块可以勾选
+   */
+  t.notIncludes(readme, '待你处理', 'README 不该再提已删除的「待你处理」');
+  t.notOk(/偏好设置/.test(readme), 'README 不该再提已删除的「偏好设置」');
+  t.notOk(/在「数据与设置」里改/.test(readme), 'README 不该再说去设置页改阅读/健身目标');
+  t.notIncludes(readme, '左侧导航共', 'README 不该再说导航是固定入口数');
+  // 但要把"板块可勾选"这个真实功能写上
+  t.includes(readme, '左侧板块选择', 'README 应说明板块可勾选');
+});
+
 t.test('README 所述备份保留份数与实现一致', async () => {
   const config = require(path.join(h.ROOT, 'server', 'config.js'));
   const storeCode = read('server/store.js');
