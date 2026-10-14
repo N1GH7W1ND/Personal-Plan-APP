@@ -12,7 +12,7 @@
 import * as date from '../date.js';
 import * as logic from '../logic.js';
 import * as ui from '../ui.js';
-import { openNoteEditor, resetNoteFilter } from './notes.js';
+import { resetNoteFilter, notesSection, handleNotesClick, handleNotesInput } from './notes.js';
 
 /** 当前日历月份下，本模块每天的标记 */
 function monthMarks(state, moduleId, today) {
@@ -148,49 +148,13 @@ export default {
       body: ui.chartCard({ moduleId: 'reading', state, today, logic }),
     });
 
-    /* ---- 5. 读书笔记（只放最近的几条，完整的在笔记页） ---- */
-    const noteSummary = logic.bookNotesSummary(state);
-    const recent = logic.filterBookNotes(state, {}).slice(0, 4);
-    const noteRows = recent.length
-      ? recent.map((n) => {
-        const book = n.bookId ? logic.findBook(state, n.bookId) : null;
-        const loc = logic.noteLocation(n);
-        return '<div class="book-note" id="bnote-' + ui.escapeHtml(n.id) + '">' +
-          '<div class="bn-head">' +
-            '<span class="tag nc-' + ui.escapeHtml(n.kind) + '">' +
-              ui.escapeHtml(logic.NOTE_KINDS[n.kind] || '想法') + '</span>' +
-            (book ? '<span class="bn-book" data-act="book-jump" data-id="' + ui.escapeHtml(book.id) + '">《' +
-              ui.escapeHtml(book.title) + '》</span>' : '<span class="muted">未关联书</span>') +
-            (loc ? '<span class="nc-loc">' + ui.escapeHtml(loc) + '</span>' : '') +
-            '<span class="spacer"></span>' +
-            (n.pinned ? '<span class="nc-pin">★</span>' : '') +
-            ui.iconBtn('✎', { act: 'bnote-edit', id: n.id }, '编辑') +
-            ui.iconBtn('✕', { act: 'bnote-del', id: n.id }, '删除') +
-          '</div>' +
-          '<div class="bn-text">' + ui.escapeHtml(n.text) + '</div>' +
-        '</div>';
-      }).join('')
-      : ui.empty('✎', '还没有笔记', '读到有感触的地方，随手记一句');
+    /*
+     * 5. 读书笔记 —— 完整能力就在这一页里（搜索、按书/类型筛选、收藏置顶、位置）。
+     * 按本人要求，笔记不再是一个独立板块，而是阅读的一部分。
+     */
+    const notesCard = notesSection(state);
 
-    const notesCard = ui.card({
-      title: '读书笔记',
-      sub: noteSummary.total + ' 条（摘抄 ' + (noteSummary.byKind.quote || 0) + ' · 收藏 ' + noteSummary.pinned + '）',
-      actions:
-        ui.btn('查看全部', { act: 'goto-notes' }, 'btn-sm') +
-        '<span style="width:6px"></span>' +
-        ui.btn('+ 记一条', { act: 'bnote-new' }, 'btn-sm'),
-      tight: true,
-      body: '<div class="note-add">' +
-        '<input class="input" type="text" data-field="bnote-input" placeholder="随手记一句想法，回车即存">' +
-        '</div>' +
-        (noteSummary.total > recent.length
-          ? '<div class="muted small" style="padding:6px 2px">只显示最近 ' + recent.length + ' 条，'
-            + '其余在「读书笔记」页</div>'
-          : '<div style="height:8px"></div>') +
-        noteRows,
-    });
-
-    return overview + booksCard + calendarCard + chartCard + notesCard +
+    return overview + booksCard + notesCard + calendarCard + chartCard +
       (todayTasks.length ? ui.card({
         title: '今天要读的',
         sub: todayTasks.length + ' 条未完成',
@@ -199,6 +163,7 @@ export default {
   },
 
   mounted(root, ctx) {
+    // 快速记一句：回车即存（笔记区里的快捷输入框）
     const input = root.querySelector('[data-field="bnote-input"]');
     if (input) {
       input.addEventListener('keydown', (ev) => {
@@ -210,8 +175,27 @@ export default {
         input.focus();
       });
     }
+
+    // 笔记区的搜索框 / 按书筛选：框内输入即筛选
+    const q = root.querySelector('[data-field="note-q"]');
+    if (q) {
+      q.addEventListener('input', (ev) => handleNotesInput(ev, ctx, { rerender: ctx.rerender }));
+      q.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape') {
+          q.value = '';
+          resetNoteFilter();
+          ctx.rerender();
+        }
+      });
+    }
+    const bookSel = root.querySelector('[data-field="note-book"]');
+    if (bookSel) {
+      bookSel.addEventListener('change', (ev) => handleNotesInput(ev, ctx, { rerender: ctx.rerender }));
+    }
+
     if (ctx.anchor) {
       const target = root.querySelector('[id="book-' + ctx.anchor + '"]') ||
+        root.querySelector('[id="note-' + ctx.anchor + '"]') ||
         root.querySelector('[id="bnote-' + ctx.anchor + '"]');
       if (target) {
         target.classList.add('flash');
@@ -231,6 +215,12 @@ export default {
     // 日历与图表
     if (ui.handleCalendarClick(act, ev, 'reading', today, helpers.rerender)) return;
     if (ui.handleChartClick(act, 'reading', helpers.rerender)) return;
+
+    /*
+     * 笔记相关的动作（新增/编辑/删除/收藏/筛选/跳书）交给笔记模块处理。
+     * 笔记是阅读的一部分，但实现放在 notes.js 里，避免这个文件过长。
+     */
+    if (handleNotesClick(act, ev, store, ctx, helpers)) return;
 
     if (type === 'read-log' || type === 'book-log') {
       const bookId = type === 'book-log' ? id : '';
@@ -259,30 +249,6 @@ export default {
     if (type === 'book-jump') {
       const target = act;
       if (target) target.classList.add('flash');
-      return;
-    }
-    if (type === 'bnote-new' || type === 'bnote-edit') {
-      const note = type === 'bnote-edit' ? logic.findBookNote(state, id) : null;
-      // 与「读书笔记」页共用同一个编辑弹窗，避免两处实现走样
-      openNoteEditor(store, helpers, note, state);
-      return;
-    }
-
-    if (type === 'goto-notes') {
-      resetNoteFilter();
-      ctx.go('notes');
-      return;
-    }
-
-    if (type === 'bnote-del') {
-      const note = logic.findBookNote(state, id);
-      if (!note) return;
-      store.dispatch((s) => logic.removeBookNote(s, id), { undoable: true, label: '删除读书笔记' });
-      ui.toastUndo('已删除笔记', () => {
-        store.undo();
-        helpers.rerender();
-      });
-      helpers.rerender();
       return;
     }
 

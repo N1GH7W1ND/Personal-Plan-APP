@@ -40,7 +40,7 @@ test('快速添加的模块列表与左侧导航里的业务模块一致（需�
   notOk(ids.includes('general'), '下拉里不应出现"通用"（它不是导航入口）');
 
   // 非任务模块的导航入口不该混进来
-  for (const id of ['home', 'today', 'notes', 'settings']) {
+  for (const id of ['home', 'today', 'settings']) {
     notOk(ids.includes(id), '下拉里不该出现 ' + id + '（它不是任务归属模块）');
   }
 
@@ -75,9 +75,9 @@ test('已移除的模块不再出现在模块清单与导航里', () => {
   eq(logic.moduleName('fitness'), '通用', '旧数据里的 fitness 应回落到通用');
 });
 
-test('导航是 8 个入口且顺序固定', () => {
+test('导航是 7 个入口且顺序固定', () => {
   deepEq(logic.NAV_ITEMS.map((n) => n.id), [
-    'home', 'today', 'dev', 'study', 'reading', 'notes', 'diet', 'settings',
+    'home', 'today', 'dev', 'study', 'reading', 'diet', 'settings',
   ]);
   for (const item of logic.NAV_ITEMS) {
     ok(item.name && item.icon, item.id + ' 应有名称与图标');

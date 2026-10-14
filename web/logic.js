@@ -51,7 +51,6 @@ export const NAV_ITEMS = [
   { id: 'dev', name: '开发工作', icon: '⌘' },
   { id: 'study', name: '学习', icon: '✎' },
   { id: 'reading', name: '阅读', icon: '❐' },
-  { id: 'notes', name: '读书笔记', icon: '✍' },
   { id: 'diet', name: '饮食计划', icon: '◍' },
   { id: 'settings', name: '数据与设置', icon: '⚙' },
 ];

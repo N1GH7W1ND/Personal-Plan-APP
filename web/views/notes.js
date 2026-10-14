@@ -1,9 +1,13 @@
 /**
- * 读书笔记视图。
+ * 读书笔记（阅读板块的一部分，不是独立板块）。
  *
- * 笔记数量一多，"挤在阅读页底部"就不好找了，所以给它一个独立页面：
- * 搜索 + 按书/类型筛选 + 收藏置顶 + 完整的位置信息（章节、页码区间、行号区间）。
- * 入口在阅读页的「读书笔记」卡片右上角，也用快捷键 N 进。
+ * 这里提供三块可被阅读页直接复用的东西：
+ *   - notesSection()  笔记区的完整界面（概况 + 搜索筛选 + 列表）
+ *   - handleNotesInput()  搜索框与下拉的输入处理
+ *   - handleNotesClick()  笔记相关的点击（新增/编辑/删除/收藏/筛选/跳书）
+ *
+ * 之所以单独放一个文件而不塞进 reading.js：阅读页本身已经有书单、日历、
+ * 图表三块内容，再加一百多行笔记代码会很难读。功能上它仍然属于阅读。
  */
 
 import * as date from '../date.js';
@@ -39,154 +43,141 @@ function noteCard(note, book) {
   '</div>';
 }
 
-export default {
-  render(state, ctx) {
-    const summary = logic.bookNotesSummary(state);
-    const list = logic.filterBookNotes(state, filter);
-    const books = state.books;
+/**
+ * 笔记区的完整界面。
+ * @param {object} state
+ * @param {object} opt {title, collapsible}
+ */
+export function notesSection(state, opt) {
+  const o = opt || {};
+  const summary = logic.bookNotesSummary(state);
+  const list = logic.filterBookNotes(state, filter);
+  const books = state.books;
+  const emptyHint = summary.total
+    ? '换个关键词，或点上面的「全部」清掉筛选'
+    : '点右上角「+ 记一条」，读到有感触的地方随手写一句';
 
-    /* ---- 概况 ---- */
-    const overview = ui.card({
-      title: '读书笔记',
-      sub: summary.total + ' 条 · 收藏 ' + summary.pinned + ' · 关联 ' + summary.booksTouched + ' 本书'
-        + (summary.withLocation ? ' · 有位置 ' + summary.withLocation + ' 条' : ''),
-      actions: ui.btn('+ 记一条', { act: 'note-new' }, 'btn-primary btn-sm'),
-      body: ui.statRow([
-        { num: summary.byKind.quote || 0, label: '摘抄' },
-        { num: summary.byKind.note || 0, label: '想法' },
-        { num: summary.byKind.question || 0, label: '疑问' },
-        { num: summary.byKind.action || 0, label: '待办' },
-      ]) +
-      '<div class="note-hint">记的时候能标到「第几页到第几页」「第几行到第几行」「哪个章节」，'
-      + '回头翻书就好找。</div>',
-    });
+  const kindTabs = '<div class="pill-tabs">' +
+    '<button type="button" class="pill-tab' + (!filter.kind ? ' active' : '') +
+      '" data-act="note-filter-kind" data-kind="">全部</button>' +
+    logic.NOTE_KIND_ORDER.map((k) =>
+      '<button type="button" class="pill-tab' + (filter.kind === k ? ' active' : '') +
+      '" data-act="note-filter-kind" data-kind="' + k + '">' +
+      ui.escapeHtml(logic.NOTE_KINDS[k]) + '</button>').join('') +
+    '</div>';
 
-    /* ---- 搜索与筛选 ---- */
-    const kindTabs = '<div class="pill-tabs">' +
-      '<button type="button" class="pill-tab' + (!filter.kind ? ' active' : '') +
-        '" data-act="note-filter-kind" data-kind="">全部</button>' +
-      logic.NOTE_KIND_ORDER.map((k) =>
-        '<button type="button" class="pill-tab' + (filter.kind === k ? ' active' : '') +
-        '" data-act="note-filter-kind" data-kind="' + k + '">' + ui.escapeHtml(logic.NOTE_KINDS[k]) + '</button>').join('') +
-      '</div>';
+  const bookOptions = [{ value: '', label: '全部书' }]
+    .concat(books.map((b) => ({ value: b.id, label: b.title })));
 
-    const bookOptions = [{ value: '', label: '全部书' }]
-      .concat(books.map((b) => ({ value: b.id, label: b.title })));
-
-    const toolbar = ui.card({
-      title: '找笔记',
-      sub: list.length + ' / ' + summary.total + ' 条',
-      tight: true,
-      body:
-        '<div class="note-toolbar">' +
-          '<input class="input" type="search" data-field="note-q" placeholder="搜内容、章节或书名…" value="' +
-            ui.escapeHtml(filter.q) + '">' +
-          ui.select('note-book', filter.bookId, bookOptions) +
-          '<button type="button" class="btn' + (filter.pinnedOnly ? ' btn-primary' : '') +
-            '" data-act="note-filter-pinned">' + (filter.pinnedOnly ? '★ 只看收藏' : '☆ 只看收藏') + '</button>' +
-        '</div>' +
-        '<div style="height:10px"></div>' + kindTabs,
-    });
-
-    /* ---- 列表 ---- */
-    const listHtml = list.length
+  const body =
+    ui.statRow([
+      { num: summary.byKind.quote || 0, label: '摘抄' },
+      { num: summary.byKind.note || 0, label: '想法' },
+      { num: summary.byKind.question || 0, label: '疑问' },
+      { num: summary.byKind.action || 0, label: '待办' },
+    ]) +
+    '<div class="note-add">' +
+      '<input class="input" type="text" data-field="bnote-input" placeholder="随手记一句想法，回车即存">' +
+    '</div>' +
+    '<div style="height:12px"></div>' +
+    '<div class="note-toolbar">' +
+      '<input class="input" type="search" data-field="note-q" placeholder="搜内容、章节或书名…" value="' +
+        ui.escapeHtml(filter.q) + '">' +
+      ui.select('note-book', filter.bookId, bookOptions) +
+      '<button type="button" class="btn' + (filter.pinnedOnly ? ' btn-primary' : '') +
+        '" data-act="note-filter-pinned">' + (filter.pinnedOnly ? '★ 只看收藏' : '☆ 只看收藏') + '</button>' +
+    '</div>' +
+    '<div style="height:10px"></div>' + kindTabs +
+    '<div class="note-count muted small">' + list.length + ' / ' + summary.total + ' 条</div>' +
+    (list.length
       ? list.map((n) => noteCard(n, n.bookId ? logic.findBook(state, n.bookId) : null)).join('')
-      : ui.empty('✎',
-        summary.total ? '没有符合条件的笔记' : '还没有笔记',
-        summary.total ? '换个关键词，或点上面的「全部」清掉筛选' : '点右上角「+ 记一条」，读到有感触的地方随手写一句');
+      : ui.empty('✎', summary.total ? '没有符合条件的笔记' : '还没有笔记', emptyHint));
 
-    const listCard = ui.card({
-      title: '全部笔记',
-      sub: list.length + ' 条',
-      body: listHtml,
+  return ui.card({
+    title: o.title || '读书笔记',
+    sub: summary.total + ' 条 · 收藏 ' + summary.pinned
+      + (summary.withLocation ? ' · 有位置 ' + summary.withLocation + ' 条' : ''),
+    actions: ui.btn('+ 记一条', { act: 'note-new' }, 'btn-primary btn-sm'),
+    body,
+  });
+}
+
+/** 笔记区的输入事件（搜索框与按书筛选）。返回 true 表示这个事件归它处理 */
+export function handleNotesInput(ev, ctx, helpers) {
+  const target = ev.target;
+  if (!target || !target.getAttribute) return false;
+  const field = target.getAttribute('data-field');
+
+  if (field === 'note-q') {
+    filter.q = target.value;
+    // 重绘后把焦点还给搜索框，否则打一个字就断了
+    ctx.rerenderKeepingFocus('note-q');
+    return true;
+  }
+  if (field === 'note-book') {
+    filter.bookId = target.value;
+    helpers.rerender();
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 笔记相关的点击。返回 true 表示已处理。
+ * 调用方（阅读页）在返回 false 时再处理自己的动作。
+ */
+export function handleNotesClick(act, ev, store, ctx, helpers) {
+  const type = act.getAttribute('data-act');
+  const id = act.getAttribute('data-id');
+  const state = store.getState();
+
+  if (type === 'note-new' || type === 'note-edit' || type === 'bnote-new' || type === 'bnote-edit') {
+    const isEdit = type === 'note-edit' || type === 'bnote-edit';
+    const note = isEdit ? logic.findBookNote(state, id) : null;
+    openNoteEditor(store, helpers, note, state);
+    return true;
+  }
+
+  if (type === 'note-del' || type === 'bnote-del') {
+    const note = logic.findBookNote(state, id);
+    if (!note) return true;
+    store.dispatch((s) => logic.removeBookNote(s, id), { undoable: true, label: '删除读书笔记' });
+    ui.toastUndo('已删除笔记', () => {
+      store.undo();
+      helpers.rerender();
     });
+    helpers.rerender();
+    return true;
+  }
 
-    return overview + toolbar + listCard;
-  },
+  if (type === 'note-pin') {
+    store.dispatch((s) => logic.toggleNotePinned(s, id), { label: '收藏笔记' });
+    helpers.rerender();
+    return true;
+  }
 
-  mounted(root, ctx) {
-    // 搜索框：输入即筛选（不改变数据，只是重绘）
-    const q = root.querySelector('[data-field="note-q"]');
-    if (q) {
-      q.addEventListener('input', () => {
-        filter.q = q.value;
-        ctx.rerenderKeepingFocus('note-q');
-      });
-      q.addEventListener('keydown', (ev) => {
-        if (ev.key === 'Escape') {
-          q.value = '';
-          filter.q = '';
-          ctx.rerender();
-        }
-      });
-    }
-    const bookSel = root.querySelector('[data-field="note-book"]');
-    if (bookSel) {
-      bookSel.addEventListener('change', () => {
-        filter.bookId = bookSel.value;
-        ctx.rerender();
-      });
-    }
+  if (type === 'note-book') {
+    // 跳到那本书所在的阅读页并高亮（本来就在阅读页，只是定位一下）
+    ctx.go('reading', id);
+    return true;
+  }
 
-    if (ctx.anchor) {
-      const target = root.querySelector('[id="note-' + ctx.anchor + '"]');
-      if (target) {
-        target.classList.add('flash');
-        target.scrollIntoView({ block: 'center' });
-      }
-    }
-  },
+  if (type === 'note-filter-kind') {
+    filter.kind = act.getAttribute('data-kind') || '';
+    helpers.rerender();
+    return true;
+  }
 
-  onClick(ev, store, ctx, helpers) {
-    const act = ev.target.closest('[data-act]');
-    if (!act) return;
-    const type = act.getAttribute('data-act');
-    const id = act.getAttribute('data-id');
-    const state = store.getState();
+  if (type === 'note-filter-pinned') {
+    filter.pinnedOnly = !filter.pinnedOnly;
+    helpers.rerender();
+    return true;
+  }
 
-    if (type === 'note-new' || type === 'note-edit') {
-      const note = type === 'note-edit' ? logic.findBookNote(state, id) : null;
-      openNoteEditor(store, helpers, note, state);
-      return;
-    }
+  return false;
+}
 
-    if (type === 'note-del') {
-      const note = logic.findBookNote(state, id);
-      if (!note) return;
-      store.dispatch((s) => logic.removeBookNote(s, id), { undoable: true, label: '删除读书笔记' });
-      ui.toastUndo('已删除笔记', () => {
-        store.undo();
-        helpers.rerender();
-      });
-      helpers.rerender();
-      return;
-    }
-
-    if (type === 'note-pin') {
-      store.dispatch((s) => logic.toggleNotePinned(s, id), { label: '收藏笔记' });
-      helpers.rerender();
-      return;
-    }
-
-    if (type === 'note-book') {
-      ctx.go('reading', id);
-      return;
-    }
-
-    if (type === 'note-filter-kind') {
-      filter.kind = act.getAttribute('data-kind') || '';
-      helpers.rerender();
-      return;
-    }
-
-    if (type === 'note-filter-pinned') {
-      filter.pinnedOnly = !filter.pinnedOnly;
-      helpers.rerender();
-    }
-  },
-};
-
-/** 重置筛选（切换页面回来时用，避免"看着像没有笔记"） */
+/** 重置筛选（离开阅读页时用，避免"看着像没有笔记"） */
 export function resetNoteFilter() {
   filter.q = '';
   filter.bookId = '';

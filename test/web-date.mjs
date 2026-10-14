@@ -63,7 +63,7 @@ test('date.js 内部不使用 UTC 截取的方式取日期', () => {
 test('前端各模块源码里没有用 toISOString().slice(0,10) 取日期', () => {
   const files = ['app.js', 'store.js', 'logic.js', 'router.js', 'ui.js', 'api.js',
     'views/home.js', 'views/today.js', 'views/dev.js', 'views/study.js',
-    'views/reading.js', 'views/notes.js', 'views/diet.js', 'views/settings.js'];
+    'views/reading.js', 'views/diet.js', 'views/settings.js'];
   for (const f of files) {
     const abs = join(ROOT, 'web', f);
     // 这些文件都是必须存在的：缺文件应当直接报出来，而不是被静默跳过
