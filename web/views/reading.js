@@ -12,7 +12,7 @@
 import * as date from '../date.js';
 import * as logic from '../logic.js';
 import * as ui from '../ui.js';
-import { resetNoteFilter, notesSection, handleNotesClick, handleNotesInput } from './notes.js';
+import { openNoteEditor, resetNoteFilter, notesSection, handleNotesClick, handleNotesInput } from './notes.js';
 
 /** 当前日历月份下，本模块每天的标记 */
 function monthMarks(state, moduleId, today) {
@@ -59,8 +59,8 @@ function bookRow(book) {
       progress +
     '</div>' +
     '<div class="book-actions">' +
-      ui.btn('记一次', { act: 'book-log', id: book.id }, 'btn-sm') +
-      ui.btn('笔记', { act: 'book-notes', id: book.id }, 'btn-sm') +
+      ui.btn('记阅读', { act: 'book-log', id: book.id }, 'btn-sm', '记录今天读了多久') +
+      ui.btn('记笔记', { act: 'book-note', id: book.id }, 'btn-sm', '给这本书记一条笔记') +
       ui.iconBtn('···', { act: 'book-menu', id: book.id }, '更多操作') +
     '</div>' +
   '</div>';
@@ -239,10 +239,17 @@ export default {
     // 推进页码现在只有两条路：编辑书时直接填「已读到第几页」，
     // 或者「记一次阅读」时顺便填读了多少页。
 
-    if (type === 'book-notes') {
-      store.dispatch((s) => logic.pushBookToToday(s, id, today), { label: '推到今日' });
-      ui.toast('已加入今日计划', { type: 'ok', duration: 2000 });
-      helpers.rerender();
+    /*
+     * 「记笔记」：就按字面意思来——打开笔记编辑弹窗，并把这本书预选好。
+     *
+     * 修正记录：这里原来是 pushBookToToday，点「笔记」却往今日计划里加了一条任务，
+     * 与按钮文字完全不符。现在「推到今日计划」只在「···」菜单里，
+     * 书行上的按钮各做各的事：记阅读 = 记时长，记笔记 = 写笔记。
+     */
+    if (type === 'book-note') {
+      const book = logic.findBook(state, id);
+      if (!book) return;
+      openNoteEditor(store, helpers, null, state, { bookId: book.id });
       return;
     }
 

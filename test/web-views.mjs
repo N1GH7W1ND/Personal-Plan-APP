@@ -57,6 +57,7 @@ const logic = await import('../web/logic.js');
 const date = await import('../web/date.js');
 const router = await import('../web/router.js');
 const jump = await import('../web/jump.js');
+const notesView = await import('../web/views/notes.js');
 
 setFile('阶段4 任务主干');
 
@@ -79,6 +80,12 @@ async function resetAfterTest() {
   try {
     await store.clearAll();
   } catch { /* 清理失败不掩盖真正的断言失败 */ }
+  /*
+   * 笔记区的搜索/筛选是"界面状态"，不随数据清空而重置。
+   * 不重置的话，前一个用例搜过的关键词会一直挡着后面的用例，
+   * 表现为"明明有笔记却显示没有符合条件的笔记"——曾因此误判过一次。
+   */
+  notesView.resetNoteFilter();
   await go('home');
   await waitRender();
 }
@@ -642,6 +649,62 @@ test('优先级标签：前三档显示、最低档不显示（列表不被标�
     ok(idx('紧急重要的活') < idx('重要不紧急的活'), '"重要且紧急"应排在"重要不紧急"之前');
     ok(idx('重要不紧急的活') < idx('不重要但紧急的活'), '"重要不紧急"应排在"不重要但紧急"之前');
     ok(idx('不重要但紧急的活') < idx('不重要不紧急的活'), '"不重要但紧急"应排在最低档之前');
+  } finally {
+    await resetAfterTest();
+  }
+});
+
+test('点书行的「记笔记」应打开笔记弹窗（回归：曾经误加成今日任务）', async () => {
+  try {
+    await go('reading');
+    store.dispatch((s) => logic.addBook(s, { title: '置身事内', author: '兰小欢', totalPages: 300 }));
+    await waitRender();
+    await go('reading');
+    const book = store.getState().books[0];
+
+    const tasksBefore = store.getState().tasks.length;
+
+    // 按钮文字就该是"记笔记"
+    const btn = findByActAndId(view(), 'book-note', book.id);
+    ok(btn, '书行上应有"记笔记"按钮');
+    eq(btn.textContent, '记笔记', '按钮文字应是「记笔记」');
+
+    btn.click();
+    await waitRender();
+    assertNoViewError();
+
+    // 核心：不该往今日计划里塞任务
+    eq(store.getState().tasks.length, tasksBefore,
+      '点「记笔记」不该新增任何任务（原 bug 是加了一条今日任务）');
+    eq(logic.tasksOn(store.getState(), date.todayStr()).filter((t) => t.module === 'reading').length, 0,
+      '今日计划里不该出现阅读任务');
+
+    // 应该打开的是笔记编辑弹窗，并且预选好了这本书
+    const m = modal();
+    ok(m, '应打开弹窗');
+    ok(m.querySelector('[data-field="text"]'), '弹窗里应有笔记内容框（说明确实是笔记弹窗）');
+    notOk(m.innerHTML.includes('读了多少分钟'), '不该打开"记一次阅读"的弹窗');
+    eq(m.querySelector('[data-field="bookId"]').value, book.id, '应预选好这本书');
+
+    // 填内容保存后，笔记应挂在这本书下，且仍然没有新增任务
+    m.querySelector('[data-field="text"]').value = '地方政府的行为逻辑';
+    findByAct(m, 'save')[0].click();
+    await waitRender();
+
+    const notes = store.getState().bookNotes;
+    eq(notes.length, 1, '应新增一条笔记');
+    eq(notes[0].bookId, book.id, '笔记应关联到这本书');
+    eq(store.getState().tasks.length, tasksBefore, '保存笔记也不该新增任务');
+    ok(view().innerHTML.includes('地方政府的行为逻辑'), '阅读页里应显示这条笔记');
+
+    // 「推到今日」仍应可用，但它在「···」菜单里，不占用书行按钮
+    findByActAndId(view(), 'book-menu', book.id).click();
+    await waitRender();
+    const push = findByAct(modal(), 'menu-pick').find((el) => el.getAttribute('data-key') === 'push');
+    ok(push, '「···」菜单里仍应有推到今日计划');
+    push.click();
+    await waitRender();
+    eq(store.getState().tasks.length, tasksBefore + 1, '从菜单里推到今日才应该新增任务');
   } finally {
     await resetAfterTest();
   }

@@ -194,10 +194,16 @@ export function resetNoteFilter() {
  *   - 页码区间
  *   - 行号区间
  */
-export function openNoteEditor(store, helpers, note, state) {
+/**
+ * 加/改一条读书笔记。
+ * @param {object|null} note 传 null 表示新增
+ * @param {object} opt {bookId} 新增时可预选某本书（从书行的「记笔记」进来时用）
+ */
+export function openNoteEditor(store, helpers, note, state, opt) {
   const isNew = !note;
+  const o = opt || {};
   const cur = note || {
-    text: '', bookId: '', kind: 'note',
+    text: '', bookId: o.bookId || '', kind: 'note',
     page: 0, pageTo: 0, line: 0, lineTo: 0, chapter: '', pinned: false,
   };
 
