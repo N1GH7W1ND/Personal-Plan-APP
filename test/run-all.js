@@ -27,6 +27,7 @@ const SUITES = [
   { name: '阶段5 功能模块', file: 'test/run-frontend.mjs', port: 42030, runner: 'esm', args: ['test/web-modules.mjs'] },
   { name: '阶段6 数据与设置', file: 'test/run-frontend.mjs', port: 42040, runner: 'esm', args: ['test/web-settings.mjs'] },
   { name: '阶段7 总验收', file: 'test/phase7.js', port: 41995 },
+  { name: '阶段8 用户使用版', file: 'test/phase8.js', port: 42050 },
   { name: '前端 · 日期与纯逻辑（含阶段3 骨架与阶段4 规则）', file: 'test/run-frontend.mjs', port: 0, runner: 'esm', args: ['test/web-date.mjs', 'test/web-logic.mjs'] },
   { name: '前端 · store 与真实服务（含阶段4 持久化）', file: 'test/run-frontend.mjs', port: 42010, runner: 'esm', args: ['test/web-store.mjs'] },
   { name: '阶段4 界面交互', file: 'test/run-frontend.mjs', port: 42020, runner: 'esm', args: ['test/web-views.mjs'] },
