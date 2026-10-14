@@ -2,7 +2,7 @@
   "name": "workbench",
   "version": "0.1.0",
   "description": "个人工作生活 App（本地运行，数据存本机文件，零第三方依赖）",
-  "author": "夜少",
+  "author": "N1GH7W1ND",
   "license": "MIT",
   "main": "server/index.js",
   "scripts": {
