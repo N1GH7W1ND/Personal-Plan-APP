@@ -20,6 +20,7 @@ export const MODULES = [
   { id: 'study', name: '学习', short: '学习' },
   { id: 'reading', name: '阅读', short: '阅读' },
   { id: 'diet', name: '饮食', short: '饮食' },
+  { id: 'fitness', name: '健身', short: '健身' },
   { id: 'general', name: '通用', short: '通用' },
 ];
 
@@ -52,6 +53,7 @@ export const NAV_ITEMS = [
   { id: 'study', name: '学习', icon: '✎' },
   { id: 'reading', name: '阅读', icon: '❐' },
   { id: 'diet', name: '饮食', icon: '◍' },
+  { id: 'fitness', name: '健身', icon: '⚑' },
   { id: 'settings', name: '数据与设置', icon: '⚙' },
 ];
 
@@ -72,12 +74,14 @@ export const NAV_MODULE_IDS = NAV_ITEMS
 /**
  * 已被移除的模块：从界面和数据里都清掉。
  * 保留这份清单是为了让旧数据能识别出来并安全清理，而不是静默丢弃。
+ *
+ * 注意：fitness（健身）已经加回来了，所以不再列在这里——
+ * 留在清单里会把用户新记的健身数据当作"旧模块残留"删掉。
  */
 export const REMOVED_MODULES = [
   { id: 'media', name: '自媒体', legacyFields: ['media'] },
   { id: 'consult', name: '咨询工作', legacyFields: ['consultTasks', 'consultRecords'] },
   { id: 'game', name: '游戏娱乐', legacyFields: ['games', 'playPlan'] },
-  { id: 'fitness', name: '健身计划', legacyFields: ['fitness'] },
 ];
 
 /** 状态枚举与中文标签 */
@@ -199,8 +203,9 @@ export function createInitialState() {
     books: [],
     readLog: [],
     bookNotes: [],
+    fitness: { log: [], goals: [], notes: [] },
     diet: { meals: {}, recipes: [], shopping: [] },
-    settings: { density: 'comfortable', readingDailyGoal: 30 },
+    settings: { density: 'comfortable', readingDailyGoal: 30, fitnessWeeklyGoal: 3 },
   };
 }
 
@@ -253,25 +258,38 @@ export function normalizeState(input) {
     if (!Array.isArray(out[f])) out[f] = [];
   }
 
+  /*
+   * 健身：模块已加回来，结构与阅读一致（日志 + 目标 + 记录）。
+   * 旧的 fitness 是 {routine, records} 两段式，这里把 records 里的打卡
+   * 迁移成新的日志格式，routine 则丢弃（那是一份固定周计划，用户可重新设目标）。
+   */
+  if (!out.fitness || typeof out.fitness !== 'object' || Array.isArray(out.fitness)) out.fitness = {};
+  if (!Array.isArray(out.fitness.log)) out.fitness.log = migrateOldFitnessRecords(out.fitness.records);
+  if (!Array.isArray(out.fitness.goals)) out.fitness.goals = [];
+  if (!Array.isArray(out.fitness.notes)) out.fitness.notes = [];
+  delete out.fitness.records;
+  delete out.fitness.routine;
+
   if (!out.diet || typeof out.diet !== 'object') out.diet = { meals: {}, recipes: [], shopping: [] };
   if (!out.diet.meals || typeof out.diet.meals !== 'object' || Array.isArray(out.diet.meals)) out.diet.meals = {};
   if (!Array.isArray(out.diet.recipes)) out.diet.recipes = [];
   if (!Array.isArray(out.diet.shopping)) out.diet.shopping = [];
 
   if (!out.settings || typeof out.settings !== 'object') out.settings = {};
-  // 健身模块移除后，设置里的健身目标也没用了
-  delete out.settings.fitnessWeeklyGoal;
   if (out.settings.density !== 'compact' && out.settings.density !== 'comfortable') out.settings.density = 'comfortable';
   // 每日阅读目标：1–480 分钟，非法值回落 30
   const goal = Number(out.settings.readingDailyGoal);
   out.settings.readingDailyGoal = Number.isFinite(goal) && goal >= 1 && goal <= 480 ? Math.round(goal) : 30;
+  // 每周健身目标：1–21 次，非法值回落 3
+  const fg = Number(out.settings.fitnessWeeklyGoal);
+  out.settings.fitnessWeeklyGoal = Number.isFinite(fg) && fg >= 1 && fg <= 21 ? Math.round(fg) : 3;
 
   /*
    * 优先级统一成四档。
    * 旧数据只有"重要/普通"两档，读进来时一次性换掉：
    * 这样磁盘上不会长期留着旧档位，各处比较也不必再各自兜底。
    */
-  for (const list of [out.tasks, out.devTasks]) {
+  for (const list of [out.tasks, out.devTasks, out.studyItems]) {
     for (const item of list) {
       if (item && typeof item === 'object') item.priority = normalizePriority(item.priority);
     }
@@ -650,6 +668,7 @@ export function addStudyItem(state, input) {
     minutes: Math.max(0, Number(src.minutes) || 0),
     source: src.source == null ? '' : String(src.source),
     note: src.note == null ? '' : String(src.note),
+    priority: normalizePriority(src.priority),
     createdAt: src.createdAt || date.nowIso(),
     updatedAt: date.nowIso(),
   };
@@ -674,6 +693,7 @@ export function updateStudyItem(state, id, patch) {
   if (p.minutes != null) item.minutes = Math.max(0, Number(p.minutes) || 0);
   if (p.source != null) item.source = String(p.source);
   if (p.note != null) item.note = String(p.note);
+  if (p.priority != null) item.priority = normalizePriority(p.priority);
   item.updatedAt = date.nowIso();
   return item;
 }
@@ -1164,6 +1184,365 @@ export function pushBookToToday(state, id, day) {
 
 
 /* ============================================================
+   健身
+   ------------------------------------------------------------
+   三样数据：训练日志（log）、训练目标（goals）、记录（notes）。
+   日志按"一天一条"累计（同一天再记就合并），目标按"每周几次"算进度。
+   ============================================================ */
+
+/** 常见训练类型（可自由输入其他） */
+export const FITNESS_TYPES = ['胸 + 三头', '背 + 二头', '腿 + 肩', '有氧', '核心', '拉伸', '其他'];
+
+/** 强度 */
+export const FITNESS_INTENSITY = { light: '轻松', normal: '正常', hard: '吃力' };
+export const FITNESS_INTENSITY_ORDER = ['light', 'normal', 'hard'];
+
+/**
+ * 把旧的 fitness.records 迁移成新的日志格式。
+ * 旧格式：records = { '2026-05-01': {...} }（按日期键的对象，当初是空的，这里做兼容）
+ * 新格式：log = [{ id, date, type, minutes, ... }]
+ */
+function migrateOldFitnessRecords(records) {
+  if (!records || typeof records !== 'object' || Array.isArray(records)) return [];
+  const out = [];
+  for (const [day, v] of Object.entries(records)) {
+    if (!date.isValidDateStr(day)) continue;
+    const rec = v && typeof v === 'object' ? v : {};
+    const minutes = Math.max(0, Math.round(Number(rec.minutes) || 0));
+    // 只记了"练过了"而没有时长时，给一个下限，保证这条记录有意义
+    out.push({
+      id: newId('f'),
+      date: day,
+      type: rec.label || rec.type || '其他',
+      minutes: minutes > 0 ? minutes : 30,
+      intensity: 'normal',
+      exercises: [],
+      note: rec.note == null ? '' : String(rec.note),
+      createdAt: date.nowIso(),
+      updatedAt: date.nowIso(),
+    });
+  }
+  return out;
+}
+
+/** 记一次训练。同一天已有记录时合并（累加时长、合并动作） */
+export function logWorkout(state, input) {
+  const src = input || {};
+  const day = date.isValidDateStr(src.date) ? src.date : date.todayStr();
+  const minutes = Math.max(0, Math.round(Number(src.minutes) || 0));
+  const type = String(src.type == null || src.type === '' ? '其他' : src.type).trim();
+
+  // 至少要有一样内容，否则不算一次训练
+  if (minutes <= 0 && !(Array.isArray(src.exercises) && src.exercises.length)) return null;
+
+  const exercises = (Array.isArray(src.exercises) ? src.exercises : [])
+    .map((e) => {
+      const name = String(e && e.name == null ? '' : e.name).trim();
+      if (!name) return null;
+      return {
+        name,
+        sets: Math.max(0, Math.round(Number(e.sets) || 0)),
+        reps: Math.max(0, Math.round(Number(e.reps) || 0)),
+      };
+    })
+    .filter(Boolean);
+
+  let entry = state.fitness.log.find((r) => r.date === day);
+  if (!entry) {
+    entry = {
+      id: newId('f'),
+      date: day,
+      type,
+      minutes: 0,
+      intensity: FITNESS_INTENSITY_ORDER.includes(src.intensity) ? src.intensity : 'normal',
+      exercises: [],
+      note: '',
+      createdAt: date.nowIso(),
+      updatedAt: date.nowIso(),
+    };
+    state.fitness.log.push(entry);
+  }
+
+  entry.minutes += minutes;
+  if (type && type !== '其他') entry.type = type;
+  if (FITNESS_INTENSITY_ORDER.includes(src.intensity)) entry.intensity = src.intensity;
+  if (src.note != null && String(src.note).trim()) {
+    entry.note = entry.note ? entry.note + '\n' + String(src.note).trim() : String(src.note).trim();
+  }
+  // 动作合并：同名动作累加组数，次数取较大的那个（记录更好的成绩）
+  for (const ex of exercises) {
+    const hit = entry.exercises.find((x) => x.name === ex.name);
+    if (hit) {
+      hit.sets += ex.sets;
+      hit.reps = Math.max(hit.reps, ex.reps);
+    } else {
+      entry.exercises.push(ex);
+    }
+  }
+  entry.updatedAt = date.nowIso();
+  return entry;
+}
+
+export function findWorkout(state, id) {
+  return state.fitness.log.find((r) => r.id === id) || null;
+}
+
+/** 直接改某天的训练记录 */
+export function updateWorkout(state, id, patch) {
+  const entry = findWorkout(state, id);
+  if (!entry) return null;
+  const p = patch || {};
+  if (p.type != null && String(p.type).trim()) entry.type = String(p.type).trim();
+  if (p.minutes != null) entry.minutes = Math.max(0, Math.round(Number(p.minutes) || 0));
+  if (p.intensity != null && FITNESS_INTENSITY_ORDER.includes(p.intensity)) entry.intensity = p.intensity;
+  if (p.note != null) entry.note = String(p.note);
+  if (p.date != null && date.isValidDateStr(p.date)) entry.date = p.date;
+  entry.updatedAt = date.nowIso();
+  return entry;
+}
+
+/** 删掉某天的训练记录 */
+export function removeWorkout(state, id) {
+  const i = state.fitness.log.findIndex((r) => r.id === id);
+  if (i === -1) return null;
+  const [removed] = state.fitness.log.splice(i, 1);
+  return removed;
+}
+
+/** 某天的训练（同一天只有一条） */
+export function workoutOn(state, day) {
+  const d = day || date.todayStr();
+  return state.fitness.log.find((r) => r.date === d) || null;
+}
+
+/** 某天的训练时长 */
+export function workoutMinutesOn(state, day) {
+  const w = workoutOn(state, day);
+  return w ? w.minutes : 0;
+}
+
+/** 累计训练次数（有记录就算一次） */
+export function workoutCount(state) {
+  return state.fitness.log.length;
+}
+
+/** 累计训练时长 */
+export function workoutMinutesTotal(state) {
+  return state.fitness.log.reduce((n, r) => n + (Number(r.minutes) || 0), 0);
+}
+
+/** 本周概览：周一起 7 天，标出哪几天练了 */
+export function fitnessWeekOverview(state, today) {
+  const t = today || date.todayStr();
+  return date.weekDates(t).map((day) => {
+    const w = workoutOn(state, day);
+    return {
+      date: day,
+      trained: !!w,
+      minutes: w ? w.minutes : 0,
+      type: w ? w.type : '',
+      isToday: day === t,
+    };
+  });
+}
+
+/** 本周练了几次、目标几次、还差几次 */
+export function fitnessWeekProgress(state, today) {
+  const week = fitnessWeekOverview(state, today);
+  const done = week.filter((d) => d.trained).length;
+  const goal = Number(state.settings.fitnessWeeklyGoal) || 3;
+  const todayDone = !!workoutOn(state, today || date.todayStr());
+  return {
+    done,
+    goal,
+    left: Math.max(0, goal - done),
+    percent: Math.min(100, Math.round((done / goal) * 100)),
+    todayDone,
+    // 今天还没练、且本周还没达标 → 值得提醒
+    shouldRemind: !todayDone && done < goal,
+  };
+}
+
+/** 连续训练天数（从今天或昨天往前数；今天还没练不算断） */
+export function fitnessStreak(state, today) {
+  const t = today || date.todayStr();
+  const days = new Set(state.fitness.log.map((r) => r.date));
+  if (!days.size) return 0;
+
+  let cursor = days.has(t) ? t : date.addDays(t, -1);
+  if (!days.has(cursor)) return 0;
+
+  let n = 0;
+  while (days.has(cursor)) {
+    n += 1;
+    cursor = date.addDays(cursor, -1);
+  }
+  return n;
+}
+
+/** 按训练类型统计次数与时长 */
+export function fitnessTypeStats(state) {
+  const map = {};
+  for (const r of state.fitness.log) {
+    const key = r.type || '其他';
+    if (!map[key]) map[key] = { type: key, count: 0, minutes: 0 };
+    map[key].count += 1;
+    map[key].minutes += Number(r.minutes) || 0;
+  }
+  return Object.values(map).sort((a, b) => b.count - a.count || b.minutes - a.minutes);
+}
+
+/* ---- 训练目标 ---- */
+
+/** 新增一个目标：每周练几次某类型 */
+export function addFitnessGoal(state, input) {
+  const src = input || {};
+  const type = String(src.type == null ? '' : src.type).trim();
+  if (!type) return null;
+  const perWeek = Math.min(21, Math.max(1, Math.round(Number(src.perWeek) || 1)));
+  const goal = {
+    id: src.id || newId('fg'),
+    type,
+    perWeek,
+    createdAt: src.createdAt || date.nowIso(),
+    updatedAt: date.nowIso(),
+  };
+  state.fitness.goals.push(goal);
+  return goal;
+}
+
+export function findFitnessGoal(state, id) {
+  return state.fitness.goals.find((g) => g.id === id) || null;
+}
+
+export function updateFitnessGoal(state, id, patch) {
+  const goal = findFitnessGoal(state, id);
+  if (!goal) return null;
+  const p = patch || {};
+  if (p.type != null && String(p.type).trim()) goal.type = String(p.type).trim();
+  if (p.perWeek != null) goal.perWeek = Math.min(21, Math.max(1, Math.round(Number(p.perWeek) || 1)));
+  goal.updatedAt = date.nowIso();
+  return goal;
+}
+
+export function removeFitnessGoal(state, id) {
+  const i = state.fitness.goals.findIndex((g) => g.id === id);
+  if (i === -1) return null;
+  const [removed] = state.fitness.goals.splice(i, 1);
+  return removed;
+}
+
+/** 每个目标本周完成情况 */
+export function fitnessGoalProgress(state, today) {
+  const t = today || date.todayStr();
+  const week = date.weekDates(t);
+  return state.fitness.goals.map((g) => {
+    const done = state.fitness.log.filter((r) => week.includes(r.date) && r.type === g.type).length;
+    return {
+      id: g.id,
+      type: g.type,
+      perWeek: g.perWeek,
+      done,
+      left: Math.max(0, g.perWeek - done),
+      percent: Math.min(100, Math.round((done / g.perWeek) * 100)),
+      reached: done >= g.perWeek,
+    };
+  });
+}
+
+/* ---- 训练记录（文字） ---- */
+
+export function addFitnessNote(state, input) {
+  const src = input || {};
+  const text = String(src.text == null ? '' : src.text).trim();
+  if (!text) return null;
+  const note = {
+    id: src.id || newId('fn'),
+    date: date.isValidDateStr(src.date) ? src.date : date.todayStr(),
+    text,
+    mood: FITNESS_INTENSITY_ORDER.includes(src.mood) ? src.mood : 'normal',
+    createdAt: src.createdAt || date.nowIso(),
+    updatedAt: date.nowIso(),
+  };
+  state.fitness.notes.push(note);
+  return note;
+}
+
+export function findFitnessNote(state, id) {
+  return state.fitness.notes.find((n) => n.id === id) || null;
+}
+
+export function updateFitnessNote(state, id, patch) {
+  const note = findFitnessNote(state, id);
+  if (!note) return null;
+  const p = patch || {};
+  if (p.text != null) {
+    const text = String(p.text).trim();
+    if (text) note.text = text;
+  }
+  if (p.date != null && date.isValidDateStr(p.date)) note.date = p.date;
+  if (p.mood != null && FITNESS_INTENSITY_ORDER.includes(p.mood)) note.mood = p.mood;
+  note.updatedAt = date.nowIso();
+  return note;
+}
+
+export function removeFitnessNote(state, id) {
+  const i = state.fitness.notes.findIndex((n) => n.id === id);
+  if (i === -1) return null;
+  const [removed] = state.fitness.notes.splice(i, 1);
+  return removed;
+}
+
+/** 训练记录（按日期倒序，新的在前） */
+export function fitnessNotesSorted(state) {
+  return state.fitness.notes.slice().sort((a, b) => {
+    if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+    return byNewestFirst(a, b);
+  });
+}
+
+/** 健身概况统计 */
+export function fitnessStats(state, today) {
+  const t = today || date.todayStr();
+  const week = fitnessWeekProgress(state, t);
+  return {
+    count: workoutCount(state),
+    minutesTotal: workoutMinutesTotal(state),
+    minutesThisWeek: fitnessWeekOverview(state, t).reduce((n, d) => n + d.minutes, 0),
+    weekDone: week.done,
+    weekGoal: week.goal,
+    weekPercent: week.percent,
+    todayDone: week.todayDone,
+    todayMinutes: workoutMinutesOn(state, t),
+    streak: fitnessStreak(state, t),
+    goals: state.fitness.goals.length,
+    goalsReached: fitnessGoalProgress(state, t).filter((g) => g.reached).length,
+    notes: state.fitness.notes.length,
+  };
+}
+
+/** 把"今天该练"推到今日计划 */
+export function pushWorkoutToToday(state, day) {
+  const st = fitnessStats(state, day || date.todayStr());
+  const title = st.todayDone ? '再做一次训练' : '完成今天的训练';
+  return addTask(state, { title, module: 'fitness', date: day || date.todayStr() });
+}
+
+/** 每周健身目标（次），非法值回落 3 */
+export function getFitnessWeeklyGoal(state) {
+  const v = Number(state.settings && state.settings.fitnessWeeklyGoal);
+  return Number.isFinite(v) && v >= 1 && v <= 21 ? Math.round(v) : 3;
+}
+
+/** 设置每周健身目标，返回实际生效的次数 */
+export function setFitnessWeeklyGoal(state, n) {
+  const v = Math.round(Number(n) || 0);
+  const applied = v >= 1 && v <= 21 ? v : 3;
+  state.settings.fitnessWeeklyGoal = applied;
+  return applied;
+}
+
+/* ============================================================
    饮食
    ============================================================ */
 
@@ -1302,6 +1681,7 @@ const MODULE_LABELS = {
   study: '学习',
   reading: '阅读',
   diet: '饮食',
+  fitness: '健身',
   general: '通用',
 };
 
@@ -1374,6 +1754,16 @@ export function calendarMarks(state, moduleId, year, month) {
       if (mins <= 0) continue;
       const m = ensure(entry.date);
       m.extra = mins + ' 分钟';
+    }
+  }
+
+  // 健身：该月每天的练了什么（显示时长，鼠标提示里带类型）
+  if (moduleId === 'fitness') {
+    for (const rec of (state.fitness && state.fitness.log) || []) {
+      if (!rec || !rec.date || !rec.date.startsWith(prefix)) continue;
+      const m = ensure(rec.date);
+      const mins = Number(rec.minutes) || 0;
+      m.extra = mins > 0 ? mins + ' 分钟' : '已练';
     }
   }
 
@@ -1552,6 +1942,7 @@ export function chartSlices(state, moduleId, rangeKey, today) {
     study: 'var(--m-study)',
     reading: 'var(--m-reading)',
     diet: 'var(--m-diet)',
+    fitness: 'var(--m-fitness)',
     general: 'var(--m-general)',
   };
   const counts = {};
@@ -1643,6 +2034,24 @@ export function homeSummary(state, today) {
       route: 'diet',
       anchor: 'meals',
       level: 'normal',
+    });
+  }
+
+  /*
+   * 健身：今天还没练、且本周还没达标时提醒一下。
+   * （模块加回来后与饮食、灵感箱一样进摘要；达标了就不打扰。）
+   */
+  const fit = fitnessWeekProgress(state, d);
+  if (fit.shouldRemind) {
+    out.push({
+      key: 'fitness-week',
+      text: fit.done === 0
+        ? '本周还没训练'
+        : '本周练了 ' + fit.done + ' 次，还差 ' + fit.left + ' 次',
+      detail: fit.todayDone ? '今天已经练过了' : '今天可以动一动',
+      route: 'fitness',
+      anchor: 'workout',
+      level: fit.done === 0 ? 'warn' : 'normal',
     });
   }
 

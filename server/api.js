@@ -79,6 +79,7 @@ function statsOf(state) {
     学习条目: (state.studyItems || []).length,
     书: (state.books || []).length,
     读书笔记: (state.bookNotes || []).length,
+    健身记录: (state.fitness && state.fitness.log ? state.fitness.log.length : 0),
     菜谱: (state.diet && state.diet.recipes ? state.diet.recipes.length : 0),
     采买: (state.diet && state.diet.shopping ? state.diet.shopping.length : 0),
   };

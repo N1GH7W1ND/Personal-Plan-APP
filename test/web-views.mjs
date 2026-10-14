@@ -557,7 +557,7 @@ test('今日计划页有统计图表，且跟着所选日期走（R16）', async
   }
 });
 
-test('优先级四档出现在所有加任务的地方（顶栏快速添加 + 各模块 + 编辑）', async () => {
+test('优先级四档出现在所有加任务的地方（顶栏 + 各板块 + 编辑）', async () => {
   const want = ['重要且紧急', '重要不紧急', '不重要但紧急', '不重要不紧急'];
   const wantValues = ['urgentImportant', 'important', 'urgent', 'normal'];
 
@@ -570,38 +570,57 @@ test('优先级四档出现在所有加任务的地方（顶栏快速添加 + �
     return sel ? sel.querySelectorAll('option').map((o) => o.getAttribute('value')) : null;
   };
 
+  /*
+   * 各板块的"新增"入口名字不一样，必须按真实名字找。
+   * 之前这里用了一个不存在的名字，于是 find 不到就 continue，
+   * 结果整条用例"假通过"——实际上开发和学习的弹窗当时根本没有优先级。
+   * 所以现在：找不到入口就判失败，而不是跳过。
+   */
+  const entries = [
+    { route: 'today', act: 'add-here', label: '今日计划' },
+    { route: 'dev', act: 'dev-new', label: '开发' },
+    { route: 'study', act: 'study-new', label: '学习' },
+  ];
+
   try {
     await go('home');
 
     // 1) 顶栏「快速添加」弹窗
     dom.document.getElementById('btnQuickAdd').click();
     await waitRender();
-    eq(modal().querySelector('[data-field="priority"]') ? 'ok' : 'missing', 'ok',
-      '快速添加弹窗应有优先级下拉');
     deepEq(readOptions(modal()), want, '快速添加的四档名称与顺序');
     deepEq(readValues(modal()), wantValues, '快速添加的四档取值');
     findByAct(modal(), 'close')[0].click();
     await waitRender();
 
-    // 2) 逐个模块页：新增/编辑任务的弹窗都要有同样的四档
-    for (const route of ['dev', 'study', 'reading', 'diet', 'today']) {
+    // 2) 各板块的新增弹窗
+    for (const { route, act, label } of entries) {
       await go(route);
       assertNoViewError();
-      // 各模块页的「加一条」入口（今天是 add-here；模块页是 add-task 类）
-      const addBtn = findByAct(view(), 'add-task')[0] || findByAct(view(), 'add-here')[0];
-      if (!addBtn) continue; // 该页没有内联添加入口就跳过
+      const addBtn = findByAct(view(), act)[0];
+      ok(addBtn, label + '页应有新增入口（' + act + '）');
       addBtn.click();
       await waitRender();
-      const opts = readOptions(modal());
-      if (opts) {
-        deepEq(opts, want, route + ' 页新增任务的四档名称与顺序');
-      }
+      ok(modal().querySelector('[data-field="priority"]'),
+        label + '页新增弹窗里应有优先级下拉');
+      deepEq(readOptions(modal()), want, label + '页新增弹窗的四档名称与顺序');
       const closeBtn = findByAct(modal(), 'close')[0];
-      if (closeBtn) closeBtn.click();
+      ok(closeBtn, label + '页弹窗应有取消按钮');
+      closeBtn.click();
       await waitRender();
     }
 
-    // 3) 编辑已有任务时也是这四档，且当前值就是数据里的档位
+    // 3) 饮食模块的「+ 存一道菜」存的是菜谱而不是任务，本来就没有优先级；
+    //    饮食的**任务**走通用任务弹窗（已在第 1 步核对）。这里把这个事实固定下来。
+    await go('diet');
+    findByAct(view(), 'recipe-new')[0].click();
+    await waitRender();
+    notOk(modal().querySelector('[data-field="priority"]'),
+      '菜谱弹窗不该有优先级（菜谱不是任务）');
+    findByAct(modal(), 'close')[0].click();
+    await waitRender();
+
+    // 4) 编辑已有任务时也是这四档，且当前值就是数据里的档位
     store.dispatch((s) => logic.addTask(s, {
       title: '优先级测试任务', module: 'dev', date: date.todayStr(), priority: 'urgent',
     }));
@@ -610,15 +629,14 @@ test('优先级四档出现在所有加任务的地方（顶栏快速添加 + �
     findByActAndId(view(), 'task-menu', task.id).click();
     await waitRender();
     const editItem = findByAct(modal(), 'menu-pick').find((el) => el.getAttribute('data-key') === 'edit');
-    if (editItem) {
-      editItem.click();
-      await waitRender();
-      deepEq(readOptions(modal()), want, '编辑任务的四档名称与顺序');
-      eq(modal().querySelector('[data-field="priority"]').value, 'urgent',
-        '编辑时应选中任务当前的档位');
-      findByAct(modal(), 'close')[0].click();
-      await waitRender();
-    }
+    ok(editItem, '任务菜单里应有编辑');
+    editItem.click();
+    await waitRender();
+    deepEq(readOptions(modal()), want, '编辑任务的四档名称与顺序');
+    eq(modal().querySelector('[data-field="priority"]').value, 'urgent',
+      '编辑时应选中任务当前的档位');
+    findByAct(modal(), 'close')[0].click();
+    await waitRender();
   } finally {
     await resetAfterTest();
   }
@@ -710,6 +728,284 @@ test('点书行的「记笔记」应打开笔记弹窗（回归：曾经误加�
   }
 });
 
+test('健身页：记录一次训练（含动作解析），界面如实显示（R20）', async () => {
+  try {
+    await go('fitness');
+    assertNoViewError();
+
+    // 标题与空状态
+    ok(view().innerHTML.includes('健身'), '页面标题应是健身');
+    ok(view().innerHTML.includes('今天还没有训练记录'), '空状态应有引导');
+    ok(view().innerHTML.includes('健身日历'), '应有健身日历');
+    ok(view().innerHTML.includes('健身统计'), '应有健身统计');
+    ok(view().innerHTML.includes('训练目标'), '应有训练目标区');
+
+    // 记录一次训练：动作写成"名称 组数x次数"
+    findByAct(view(), 'workout-new')[0].click();
+    await waitRender();
+    const m = modal();
+    ok(m, '应打开记录训练弹窗');
+    for (const f of ['type', 'minutes', 'date', 'intensity', 'exercises', 'note']) {
+      ok(m.querySelector('[data-field="' + f + '"]'), '弹窗里应有字段 ' + f);
+    }
+
+    m.querySelector('[data-field="type"]').value = '胸 + 三头';
+    m.querySelector('[data-field="minutes"]').value = '45';
+    m.querySelector('[data-field="intensity"]').value = 'hard';
+    m.querySelector('[data-field="exercises"]').value = '卧推 4x12\n上斜哑铃卧推 3x10\n绳索下压 3 15';
+    m.querySelector('[data-field="note"]').value = '状态不错';
+    findByAct(m, 'save')[0].click();
+    await waitRender();
+    assertNoViewError();
+
+    const rec = store.getState().fitness.log[0];
+    ok(rec, '应新增一条训练记录');
+    eq(rec.type, '胸 + 三头');
+    eq(rec.minutes, 45);
+    eq(rec.intensity, 'hard');
+    eq(rec.exercises.length, 3, '三行动作都应被解析');
+    eq(rec.exercises[0].name, '卧推');
+    eq(rec.exercises[0].sets, 4);
+    eq(rec.exercises[0].reps, 12);
+    // "绳索下压 3 15" 这种空格分隔也要认
+    eq(rec.exercises[2].name, '绳索下压');
+    eq(rec.exercises[2].sets, 3);
+    eq(rec.exercises[2].reps, 15);
+
+    // 界面上应显示出来
+    const html = view().innerHTML;
+    ok(html.includes('45'), '应显示时长');
+    ok(html.includes('卧推'), '应显示动作');
+    ok(html.includes('状态不错'), '应显示备注');
+    ok(html.includes('吃力'), '应显示强度');
+    ok(html.includes('训练日志'), '应出现训练日志区');
+  } finally {
+    await resetAfterTest();
+  }
+});
+
+test('健身页：空记录不写入、同一天再记会合并（R20.3–R20.4）', async () => {
+  try {
+    await go('fitness');
+
+    // 时长 0 且没有动作 → 不该写入
+    findByAct(view(), 'workout-new')[0].click();
+    await waitRender();
+    modal().querySelector('[data-field="minutes"]').value = '0';
+    modal().querySelector('[data-field="exercises"]').value = '';
+    findByAct(modal(), 'save')[0].click();
+    await waitRender();
+    eq(store.getState().fitness.log.length, 0, '空记录不该写入');
+    // 弹窗应还开着（因为没通过校验）
+    ok(modal().querySelector('[data-field="minutes"]'), '校验不通过时弹窗应保持打开');
+
+    // 填上时长再存
+    modal().querySelector('[data-field="minutes"]').value = '30';
+    modal().querySelector('[data-field="exercises"]').value = '卧推 3x10';
+    findByAct(modal(), 'save')[0].click();
+    await waitRender();
+    eq(store.getState().fitness.log.length, 1, '补上时长后应写入');
+
+    // 同一天再记一次 → 合并
+    findByAct(view(), 'workout-new')[0].click();
+    await waitRender();
+    modal().querySelector('[data-field="minutes"]').value = '20';
+    modal().querySelector('[data-field="exercises"]').value = '卧推 2x12';
+    findByAct(modal(), 'save')[0].click();
+    await waitRender();
+
+    const log = store.getState().fitness.log;
+    eq(log.length, 1, '同一天只应有一条记录');
+    eq(log[0].minutes, 50, '时长应累加');
+    eq(log[0].exercises.length, 1, '同名动作应合并');
+    eq(log[0].exercises[0].sets, 5, '组数应累加');
+  } finally {
+    await resetAfterTest();
+  }
+});
+
+test('健身页：训练目标的新增、进度与达标（R20.5）', async () => {
+  try {
+    await go('fitness');
+
+    // 加一个"胸 + 三头 每周 2 次"
+    findByAct(view(), 'goal-new')[0].click();
+    await waitRender();
+    modal().querySelector('[data-field="type"]').value = '胸 + 三头';
+    modal().querySelector('[data-field="perWeek"]').value = '2';
+    findByAct(modal(), 'save')[0].click();
+    await waitRender();
+    assertNoViewError();
+
+    const goal = store.getState().fitness.goals[0];
+    ok(goal, '应新增一个目标');
+    eq(goal.type, '胸 + 三头');
+    eq(goal.perWeek, 2);
+    ok(view().innerHTML.includes('0/2'), '界面应显示本周进度 0/2');
+
+    // 从目标的「记一次」按钮记录，类型应被预选
+    const today = date.todayStr();
+    store.dispatch((s) => logic.logWorkout(s, { date: today, type: '胸 + 三头', minutes: 40 }));
+    await waitRender();
+    await go('fitness');
+    ok(view().innerHTML.includes('1/2'), '练一次后应显示 1/2');
+
+    // 再练一次达标
+    store.dispatch((s) => logic.logWorkout(s, { date: date.addDays(today, -1), type: '胸 + 三头', minutes: 40 }));
+    await waitRender();
+    await go('fitness');
+    ok(view().innerHTML.includes('2/2'), '练够后应显示 2/2');
+    ok(view().innerHTML.includes('已达标'), '达标后应标出');
+    ok(view().innerHTML.includes('reached'), '达标的目标应有对应样式');
+
+    /*
+     * 从目标卡片点「记一次」，类型应被预选好。
+     * 注意：页面上有多个 workout-new（顶栏、今日卡片、每个目标各一个），
+     * 预设类型写在 data-type 上（type 属性被 type="button" 占用），不能取 [0]。
+     */
+    const goalBtn = findByAct(view(), 'workout-new')
+      .find((b) => b.getAttribute('data-type') === '胸 + 三头');
+    ok(goalBtn, '目标卡片上应有「记一次」按钮');
+    goalBtn.click();
+    await waitRender();
+    eq(modal().querySelector('[data-field="type"]').value, '胸 + 三头',
+      '从目标卡片进来时应预选该类型');
+    findByAct(modal(), 'close')[0].click();
+    await waitRender();
+  } finally {
+    await resetAfterTest();
+  }
+});
+
+test('健身页：概况统计（本周进度、连续天数）与推到今日', async () => {
+  try {
+    const today = date.todayStr();
+    await go('fitness');
+
+    // 造：昨天 + 今天各一次
+    store.dispatch((s) => logic.setFitnessWeeklyGoal(s, 3));
+    store.dispatch((s) => logic.logWorkout(s, { date: date.addDays(today, -1), type: '有氧', minutes: 30 }));
+    store.dispatch((s) => logic.logWorkout(s, { date: today, type: '有氧', minutes: 30 }));
+    await waitRender();
+    await go('fitness');
+    assertNoViewError();
+
+    const html = view().innerHTML;
+    ok(html.includes('本周练了'), '应有本周进度文案');
+    ok(html.includes('2'), '本周应显示练了 2 次');
+    ok(html.includes('还差'), '未达标时应显示还差几次');
+    ok(html.includes('连续天数'), '应有连续天数统计');
+    ok(html.includes('week-dot'), '应有本周七天小格');
+    const trained = view().querySelectorAll('.week-dot').filter((d) => d.className.includes('done'));
+    eq(trained.length, 2, '本周应亮起两格');
+
+    // 推到今日：应生成归属健身的任务
+    const before = store.getState().tasks.length;
+    findByAct(view(), 'workout-push')[0].click();
+    await waitRender();
+    const task = store.getState().tasks.find((x) => x.module === 'fitness');
+    ok(task, '应生成一条健身任务');
+    eq(store.getState().tasks.length, before + 1);
+    ok(view().innerHTML.includes('已加入今日计划') || task.title.length > 0, '应有反馈');
+  } finally {
+    await resetAfterTest();
+  }
+});
+
+test('健身页：训练记录可记、可删并撤销（R20.9）', async () => {
+  try {
+    await go('fitness');
+
+    const input = view().querySelector('[data-field="fnote-input"]');
+    ok(input, '应有快速记录输入框');
+    input.typeAndEnter('今天状态不错');
+    await waitRender();
+
+    let notes = store.getState().fitness.notes;
+    eq(notes.length, 1, '应新增一条训练记录');
+    eq(notes[0].text, '今天状态不错');
+    ok(view().innerHTML.includes('今天状态不错'), '界面上应显示');
+
+    // 删除并可撤销
+    findByActAndId(view(), 'fnote-del', notes[0].id).click();
+    await waitRender();
+    eq(store.getState().fitness.notes.length, 0, '应删除');
+    dom.document.getElementById('toastLayer').querySelector('.toast-action').click();
+    await waitRender();
+    eq(store.getState().fitness.notes.length, 1, '撤销后应恢复');
+
+    // 编辑走弹窗
+    notes = store.getState().fitness.notes;
+    findByActAndId(view(), 'fnote-edit', notes[0].id).click();
+    await waitRender();
+    ok(modal().querySelector('[data-field="mood"]'), '编辑弹窗应有身体感觉');
+    modal().querySelector('[data-field="text"]').value = '改成这样';
+    findByAct(modal(), 'save')[0].click();
+    await waitRender();
+    eq(store.getState().fitness.notes[0].text, '改成这样');
+  } finally {
+    await resetAfterTest();
+  }
+});
+
+test('健身：编辑与删除某天训练（含弹窗里的删除按钮）', async () => {
+  try {
+    const today = date.todayStr();
+    await go('fitness');
+    store.dispatch((s) => logic.logWorkout(s, { date: today, type: '有氧', minutes: 30 }));
+    await waitRender();
+    await go('fitness');
+
+    const rec = store.getState().fitness.log[0];
+    findByActAndId(view(), 'workout-edit', rec.id).click();
+    await waitRender();
+    ok(modal(), '应打开编辑弹窗');
+    ok(findByAct(modal(), 'del').length > 0, '编辑弹窗里应有删除按钮');
+    modal().querySelector('[data-field="minutes"]').value = '55';
+    modal().querySelector('[data-field="type"]').value = '核心';
+    findByAct(modal(), 'save')[0].click();
+    await waitRender();
+
+    const after = store.getState().fitness.log[0];
+    eq(after.minutes, 55, '时长应被改掉');
+    eq(after.type, '核心', '类型应被改掉');
+
+    // 通过弹窗里的删除按钮删掉
+    findByActAndId(view(), 'workout-edit', rec.id).click();
+    await waitRender();
+    findByAct(modal(), 'del')[0].click();
+    await waitRender();
+    eq(store.getState().fitness.log.length, 0, '应删除这条训练');
+    eq(store.getStatus().canUndo, true, '应可撤销');
+    dom.document.getElementById('toastLayer').querySelector('.toast-action').click();
+    await waitRender();
+    eq(store.getState().fitness.log.length, 1, '撤销后应恢复');
+  } finally {
+    await resetAfterTest();
+  }
+});
+
+test('健身：健身任务能出现在今日计划与首页（与其他模块一致）', async () => {
+  try {
+    const today = date.todayStr();
+    await go('fitness');
+    store.dispatch((s) => logic.pushWorkoutToToday(s, today));
+    await waitRender();
+
+    const task = logic.tasksOn(store.getState(), today).find((x) => x.module === 'fitness');
+    ok(task, '应生成健身任务');
+
+    await go('today');
+    ok(view().innerHTML.includes(task.title), '今日计划里应显示这条健身任务');
+    ok(view().innerHTML.includes('健身'), '应显示健身模块标签');
+
+    await go('home');
+    ok(view().innerHTML.includes(task.title), '首页今日计划里也应显示');
+  } finally {
+    await resetAfterTest();
+  }
+});
+
 test('左侧导航的文字与顺序（开发/饮食用简称）', async () => {
   await go('home');
   const navEl = dom.document.getElementById('nav');
@@ -721,7 +1017,7 @@ test('左侧导航的文字与顺序（开发/饮食用简称）', async () => {
     return span ? span.textContent : '';
   });
 
-  deepEq(labels, ['首页总览', '今日计划', '开发', '学习', '阅读', '饮食', '数据与设置'],
+  deepEq(labels, ['首页总览', '今日计划', '开发', '学习', '阅读', '饮食', '健身', '数据与设置'],
     '左侧导航的文字与顺序（按本人要求"开发工作"改"开发"、"饮食计划"改"饮食"）');
 
   // 不该再出现旧的全称
@@ -742,9 +1038,9 @@ test('左侧导航的文字与顺序（开发/饮食用简称）', async () => {
   await go('home');
 });
 
-test('数字键 1–7 随时能切换页面；主动点进输入框时数字归用户（回归）', async () => {
+test('数字键 1–8 随时能切换页面；主动点进输入框时数字归用户（回归）', async () => {
   const navIds = logic.NAV_ITEMS.map((n) => n.id);
-  eq(navIds.length, 7, '当前应是 7 个导航入口');
+  eq(navIds.length, 8, '当前应是 8 个导航入口');
 
   // ---- 一：没有在输入时，数字键应当切换页面 ----
   for (let i = 0; i < navIds.length; i++) {

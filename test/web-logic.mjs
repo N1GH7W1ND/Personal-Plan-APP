@@ -18,12 +18,13 @@ function fresh() {
 
 test('模块清单完整且含"通用"兜底', () => {
   const ids = logic.MODULE_IDS;
-  for (const id of ['dev', 'study', 'reading', 'diet', 'general']) {
+  for (const id of ['dev', 'study', 'reading', 'diet', 'fitness', 'general']) {
     ok(ids.includes(id), '缺少模块 ' + id);
   }
   eq(logic.moduleName('dev'), '开发');
   eq(logic.moduleName('study'), '学习');
   eq(logic.moduleName('reading'), '阅读');
+  eq(logic.moduleName('fitness'), '健身');
   eq(logic.moduleName('unknown-module'), '通用', '未知模块应回落到通用');
 });
 
@@ -62,8 +63,8 @@ test('快速添加的模块列表与左侧导航里的业务模块一致（需�
   for (const id of ids) ok(logic.isModuleId(id), id + ' 应是合法模块 id');
 });
 
-test('已移除的模块不再出现在模块清单与导航里', () => {
-  for (const gone of ['media', 'consult', 'game', 'fitness']) {
+test('已移除的模块不再出现在模块清单与导航里（健身已加回，不在此列）', () => {
+  for (const gone of ['media', 'consult', 'game']) {
     eq(logic.MODULE_IDS.includes(gone), false, '模块清单里不应再有 ' + gone);
     eq(logic.NAV_ITEMS.some((n) => n.id === gone || n.id === gone + 's'), false,
       '导航里不应再有 ' + gone);
@@ -72,12 +73,19 @@ test('已移除的模块不再出现在模块清单与导航里', () => {
   eq(logic.moduleName('media'), '通用', '旧数据里的 media 应回落到通用');
   eq(logic.moduleName('consult'), '通用', '旧数据里的 consult 应回落到通用');
   eq(logic.moduleName('game'), '通用', '旧数据里的 game 应回落到通用');
-  eq(logic.moduleName('fitness'), '通用', '旧数据里的 fitness 应回落到通用');
+
+  /*
+   * 健身是加回来的模块，必须在清单与导航里。
+   * （之前这里是反向断言"fitness 应回落到通用"，模块回来后已反转。）
+   */
+  ok(logic.MODULE_IDS.includes('fitness'), '模块清单里应重新有 fitness');
+  eq(logic.moduleName('fitness'), '健身', '健身应有自己的中文名');
+  eq(logic.NAV_ITEMS.some((n) => n.id === 'fitness'), true, '导航里应有健身入口');
 });
 
-test('导航是 7 个入口且顺序固定', () => {
+test('导航是 8 个入口且顺序固定', () => {
   deepEq(logic.NAV_ITEMS.map((n) => n.id), [
-    'home', 'today', 'dev', 'study', 'reading', 'diet', 'settings',
+    'home', 'today', 'dev', 'study', 'reading', 'diet', 'fitness', 'settings',
   ]);
   for (const item of logic.NAV_ITEMS) {
     ok(item.name && item.icon, item.id + ' 应有名称与图标');
@@ -90,11 +98,13 @@ test('初始状态字段齐全，且不含已移除模块', () => {
   for (const f of ['tasks', 'notes', 'devTasks', 'devIdeas', 'studyItems']) {
     ok(Array.isArray(s[f]), f + ' 应为数组');
   }
-  // 已移除模块的字段不应出现在初始状态里
-  for (const gone of ['media', 'consultTasks', 'consultRecords', 'games', 'playPlan', 'fitness']) {
+  // 仍然移除的模块字段不该出现
+  for (const gone of ['media', 'consultTasks', 'consultRecords', 'games', 'playPlan']) {
     eq(gone in s, false, '初始状态不应再有 ' + gone + ' 字段');
   }
-  eq('fitnessWeeklyGoal' in s.settings, false, '设置里不应再有健身目标');
+  // 健身已加回：结构应与阅读同构（日志 + 目标 + 记录）
+  deepEq(s.fitness, { log: [], goals: [], notes: [] }, '健身应有 log/goals/notes 三段结构');
+  eq(s.settings.fitnessWeeklyGoal, 3, '设置里应有每周健身目标');
   deepEq(s.diet, { meals: {}, recipes: [], shopping: [] }, 'diet 结构');
   eq(s.settings.density, 'comfortable');
 });
@@ -122,17 +132,23 @@ test('purgeRemovedModules 会清掉旧数据并报告清了多少', () => {
 
   eq(legacy.media, undefined, 'media 应被删除');
   eq(legacy.games, undefined, 'games 应被删除');
-  eq(legacy.fitness, undefined, 'fitness 应被删除');
-  eq(legacy.tasks.length, 1, '只应留下通用任务');
+  /*
+   * 健身已加回来：purgeRemovedModules **不该**再动它。
+   * 这条是回归——如果把 fitness 留在移除清单里，
+   * 用户新记的健身数据每次读取都会被删掉。
+   */
+  ok(legacy.fitness, 'fitness 不该被 purgeRemovedModules 删除');
+  eq(legacy.tasks.length, 2, '只应留下通用任务与健身任务');
   eq(legacy.tasks[0].id, 't1');
+  ok(legacy.tasks.some((x) => x.id === 't5'), '归属健身的任务也应保留');
 
   const byId = {};
   for (const r of report) byId[r.id] = r;
   eq(byId.media.count, 3, '自媒体：2 条内容 + 1 条归属自媒体的任务');
   eq(byId.consult.count, 3, '咨询：1 待办 + 1 记录 + 1 条归属咨询的任务');
   eq(byId.game.count, 3, '游戏：1 游戏 + 1 放松安排 + 1 条归属游戏的任务');
-  // 健身：1 天周安排 + 1 条打卡记录 + 1 条归属健身的任务
-  eq(byId.fitness.count, 3, '健身：周安排与打卡记录也应计入清理报告');
+  // 健身不在移除清单里，因此不该出现在清理报告里
+  eq(byId.fitness, undefined, '健身不该出现在清理报告里（它已不是被移除的模块）');
 
   // 干净数据不应产生报告
   deepEq(logic.purgeRemovedModules(logic.createInitialState()), [], '干净数据不应有清理报告');
@@ -141,7 +157,8 @@ test('purgeRemovedModules 会清掉旧数据并报告清了多少', () => {
 test('normalizeState 能修复残缺/手改数据', () => {
   const n = logic.normalizeState({ tasks: 'bad', fitness: null, diet: 5, settings: { density: 'x' } });
   deepEq(n.tasks, []);
-  eq('fitness' in n, false, '已移除模块的字段应被丢掉');
+  // 健身已加回来：手改成 null 也应被修成合法结构，而不是丢掉
+  deepEq(n.fitness, { log: [], goals: [], notes: [] }, 'fitness 被写坏时应修成合法结构');
   deepEq(n.diet, { meals: {}, recipes: [], shopping: [] });
   eq(n.settings.density, 'comfortable');
   eq(logic.normalizeState(null).schemaVersion, 1);
@@ -307,10 +324,13 @@ test('各模块今日欠账数', () => {
 
   const byModule = logic.pendingByModule(s, today);
   eq(byModule.dev, 1);
+  // 健身也在统计里（模块加回后，它和别的模块一样有欠账口径）
+  ok('fitness' in byModule, '各模块欠账里应包含健身');
+  eq(byModule.fitness, 0, '没有健身任务时应为 0');
   eq(byModule.study, 1);
   eq(byModule.diet, 0);
-  // 已移除的模块不应再出现在欠账统计里
-  for (const gone of ['media', 'game', 'fitness', 'consult']) {
+  // 已移除的模块不应再出现在欠账统计里（健身已加回，因此不在此列）
+  for (const gone of ['media', 'game', 'consult']) {
     eq(gone in byModule, false, '不应再有 ' + gone + ' 欠账统计');
   }
 });
@@ -1095,6 +1115,42 @@ test('优先级：新增与修改都只接受四档', () => {
   eq(d.priority, 'important', '开发待办同样迁移旧档位');
 });
 
+test('优先级：开发待办与学习条目也都用四档', () => {
+  const s = fresh();
+
+  // 开发待办
+  eq(logic.addDevTask(s, { title: '待办', priority: 'urgentImportant' }).priority, 'urgentImportant');
+  const d = logic.addDevTask(s, { title: '改', priority: 'normal' });
+  logic.updateDevTask(s, d.id, { priority: 'urgent' });
+  eq(d.priority, 'urgent');
+  eq(logic.addDevTask(s, { title: '旧的', priority: 'high' }).priority, 'important');
+  eq(logic.addDevTask(s, { title: '乱写', priority: '第五档' }).priority, 'normal');
+
+  /*
+   * 学习条目：之前**根本没有 priority 这个字段**，
+   * 所以"优先级要在所有板块可用"这条只做到了任务与开发待办。
+   * 这里把它固定下来，防止以后又漏。
+   */
+  const st = logic.addStudyItem(s, { title: '学点东西', priority: 'important' });
+  eq(st.priority, 'important', '学习条目应能带优先级');
+  logic.updateStudyItem(s, st.id, { priority: 'urgentImportant' });
+  eq(st.priority, 'urgentImportant');
+  eq(logic.addStudyItem(s, { title: '没填' }).priority, 'normal', '不填时默认最低档');
+  eq(logic.addStudyItem(s, { title: '旧的', priority: 'high' }).priority, 'important',
+    '学习条目的旧档位也要迁移');
+  eq(logic.addStudyItem(s, { title: '乱写', priority: '第五档' }).priority, 'normal');
+
+  // 读入旧数据时三种列表都要被规整
+  const n = logic.normalizeState({
+    tasks: [{ id: 't1', title: 'A', priority: 'high' }],
+    devTasks: [{ id: 'd1', title: 'B', priority: 'high' }],
+    studyItems: [{ id: 's1', title: 'C', priority: 'high' }],
+  });
+  eq(n.tasks[0].priority, 'important');
+  eq(n.devTasks[0].priority, 'important');
+  eq(n.studyItems[0].priority, 'important', '学习条目的优先级也要在读入时规整');
+});
+
 test('优先级：按四档顺序排序，"重要且紧急"排最前', () => {
   const s = fresh();
   const d = '2026-10-08';
@@ -1137,6 +1193,363 @@ test('优先级：旧数据读进来时就被规整成四档（磁盘不留旧�
     ok(logic.PRIORITY_ORDER.includes(x.priority),
       '规整后只能是四档之一，实际：' + x.priority);
   }
+});
+
+test('健身：记一次训练会补全字段，时长与动作都要有', () => {
+  const s = fresh();
+
+  const a = logic.logWorkout(s, {
+    date: '2026-10-08', type: '胸 + 三头', minutes: 45, intensity: 'hard',
+    exercises: [{ name: '卧推', sets: 4, reps: 12 }, { name: '绳索下压', sets: 3, reps: 15 }],
+    note: '状态不错',
+  });
+  ok(a, '应记录成功');
+  eq(a.date, '2026-10-08');
+  eq(a.type, '胸 + 三头');
+  eq(a.minutes, 45);
+  eq(a.intensity, 'hard');
+  eq(a.exercises.length, 2);
+  eq(a.exercises[0].name, '卧推');
+  eq(a.note, '状态不错');
+  ok(a.id && a.createdAt, '应有 id 与时间戳');
+  eq(s.fitness.log.length, 1);
+});
+
+test('健身：至少要有时长或一个动作，空记录不写入（R20.3）', () => {
+  const s = fresh();
+  eq(logic.logWorkout(s, { minutes: 0 }), null, '没时长没动作应被拒绝');
+  eq(logic.logWorkout(s, {}), null, '什么都不填应被拒绝');
+  eq(logic.logWorkout(s, { minutes: 0, exercises: [] }), null);
+  // 只有动作、没有时长：允许（练了几组也是练了）
+  ok(logic.logWorkout(s, { exercises: [{ name: '引体向上', sets: 3, reps: 8 }] }),
+    '只写动作也应能记录');
+  eq(s.fitness.log.length, 1);
+  // 只有时长、没有动作：允许
+  ok(logic.logWorkout(s, { date: '2026-10-09', minutes: 30 }), '只写时长也应能记录');
+  eq(s.fitness.log.length, 2);
+});
+
+test('健身：同一天记两次会合并（时长累加、同名动作合并）', () => {
+  const s = fresh();
+  const d = '2026-10-08';
+
+  logic.logWorkout(s, { date: d, type: '胸 + 三头', minutes: 30, exercises: [{ name: '卧推', sets: 3, reps: 10 }] });
+  logic.logWorkout(s, { date: d, minutes: 20, exercises: [{ name: '卧推', sets: 2, reps: 12 }] });
+
+  eq(s.fitness.log.length, 1, '同一天只应有一条记录');
+  const rec = s.fitness.log[0];
+  eq(rec.minutes, 50, '时长应累加');
+  eq(rec.exercises.length, 1, '同名动作应合并而不是新增一条');
+  eq(rec.exercises[0].sets, 5, '组数应累加');
+  eq(rec.exercises[0].reps, 12, '次数取较大的那个（更好的成绩）');
+
+  // 不同类型的新动作应追加
+  logic.logWorkout(s, { date: d, exercises: [{ name: '深蹲', sets: 4, reps: 10 }] });
+  eq(s.fitness.log[0].exercises.length, 2, '不同名动作应追加');
+});
+
+test('健身：某天的时长、累计次数与累计时长', () => {
+  const s = fresh();
+  logic.logWorkout(s, { date: '2026-10-05', type: '有氧', minutes: 30 });
+  logic.logWorkout(s, { date: '2026-10-06', type: '有氧', minutes: 45 });
+  logic.logWorkout(s, { date: '2026-10-07', type: '腿 + 肩', minutes: 60 });
+
+  eq(logic.workoutMinutesOn(s, '2026-10-05'), 30);
+  eq(logic.workoutMinutesOn(s, '2026-10-08'), 0, '没练的那天是 0');
+  eq(logic.workoutCount(s), 3);
+  eq(logic.workoutMinutesTotal(s), 135);
+  eq(logic.workoutOn(s, '2026-10-06').type, '有氧');
+  eq(logic.workoutOn(s, '2026-10-09'), null);
+});
+
+test('健身：本周进度与达标（含"还差几次"）', () => {
+  const s = fresh();
+  // 2026-10-08 是周四，本周为 10-05 ~ 10-11
+  const t = '2026-10-08';
+  logic.setFitnessWeeklyGoal(s, 3);
+
+  let w = logic.fitnessWeekProgress(s, t);
+  eq(w.done, 0);
+  eq(w.goal, 3);
+  eq(w.left, 3);
+  eq(w.todayDone, false);
+  eq(w.shouldRemind, true, '一次没练应值得提醒');
+
+  logic.logWorkout(s, { date: '2026-10-05', type: '有氧', minutes: 30 });
+  logic.logWorkout(s, { date: '2026-10-06', type: '腿 + 肩', minutes: 40 });
+  w = logic.fitnessWeekProgress(s, t);
+  eq(w.done, 2);
+  eq(w.left, 1);
+  eq(w.percent, 67, '2/3 应为 67%');
+  eq(w.shouldRemind, true, '还没达标应继续提醒');
+
+  // 今天练了 → 不再提醒；再练一次达标
+  logic.logWorkout(s, { date: t, type: '核心', minutes: 20 });
+  w = logic.fitnessWeekProgress(s, t);
+  eq(w.done, 3);
+  eq(w.todayDone, true);
+  eq(w.left, 0);
+  eq(w.percent, 100);
+  eq(w.shouldRemind, false, '达标后不该再提醒');
+
+  // 上周的记录不该算进本周
+  logic.logWorkout(s, { date: '2026-09-30', type: '有氧', minutes: 30 });
+  eq(logic.fitnessWeekProgress(s, t).done, 3, '上周的不算本周');
+
+  // 本周概览固定 7 天，周一起
+  const week = logic.fitnessWeekOverview(s, t);
+  eq(week.length, 7);
+  eq(week[0].date, '2026-10-05', '应从周一开始');
+  eq(week[0].trained, true);
+  eq(week[1].trained, true);
+  eq(week[2].trained, false, '10-07 没练');
+  eq(week[3].isToday, true, '今天应被标出');
+});
+
+test('健身：连续天数（今天还没练不算断）', () => {
+  const s = fresh();
+  const t = '2026-10-08';
+  eq(logic.fitnessStreak(s, t), 0, '一次没练是 0 天');
+
+  // 连着 10-06 / 10-07，今天(10-08)还没练
+  logic.logWorkout(s, { date: '2026-10-06', minutes: 30 });
+  logic.logWorkout(s, { date: '2026-10-07', minutes: 30 });
+  eq(logic.fitnessStreak(s, t), 2, '今天还没练时应从昨天往前数，不算断');
+
+  // 今天也练了 → 3 天
+  logic.logWorkout(s, { date: t, minutes: 30 });
+  eq(logic.fitnessStreak(s, t), 3);
+
+  // 中间断一天，只算最近的连续段
+  const s2 = fresh();
+  logic.logWorkout(s2, { date: '2026-10-01', minutes: 30 });
+  logic.logWorkout(s2, { date: '2026-10-02', minutes: 30 });
+  logic.logWorkout(s2, { date: '2026-10-07', minutes: 30 });
+  logic.logWorkout(s2, { date: '2026-10-08', minutes: 30 });
+  eq(logic.fitnessStreak(s2, t), 2, '应从最近连续的那段算起');
+});
+
+test('健身：训练目标的本周进度与达标', () => {
+  const s = fresh();
+  const t = '2026-10-08';
+
+  const g1 = logic.addFitnessGoal(s, { type: '胸 + 三头', perWeek: 2 });
+  const g2 = logic.addFitnessGoal(s, { type: '有氧', perWeek: 1 });
+  eq(g1.perWeek, 2);
+  eq(g2.perWeek, 1);
+  eq(s.fitness.goals.length, 2);
+  eq(logic.addFitnessGoal(s, { type: '  ' }), null, '空类型应被拒绝');
+  // 边界值：每周次数夹在 1..21
+  eq(logic.addFitnessGoal(s, { type: '腿', perWeek: 0 }).perWeek, 1, '每周次数至少 1');
+  eq(logic.addFitnessGoal(s, { type: '腿2', perWeek: 99 }).perWeek, 21, '每周次数最多 21');
+  eq(s.fitness.goals.length, 4, '前面 2 个 + 这 2 个边界值目标');
+
+  // 本周练 2 次胸、1 次有氧
+  logic.logWorkout(s, { date: '2026-10-05', type: '胸 + 三头', minutes: 40 });
+  logic.logWorkout(s, { date: '2026-10-07', type: '胸 + 三头', minutes: 40 });
+  logic.logWorkout(s, { date: '2026-10-06', type: '有氧', minutes: 30 });
+
+  const prog = logic.fitnessGoalProgress(s, t);
+  const p1 = prog.find((x) => x.type === '胸 + 三头');
+  const p2 = prog.find((x) => x.type === '有氧');
+  eq(p1.done, 2);
+  eq(p1.percent, 100);
+  eq(p1.reached, true, '练够 2 次应达标');
+  eq(p2.done, 1);
+  eq(p2.reached, true);
+
+  // 没练够的目标
+  const g3 = logic.addFitnessGoal(s, { type: '腿 + 肩', perWeek: 3 });
+  const p3 = logic.fitnessGoalProgress(s, t).find((x) => x.type === '腿 + 肩');
+  eq(p3.done, 0);
+  eq(p3.left, 3);
+  eq(p3.reached, false);
+
+  // 改与删
+  // 此时共 5 个目标：胸 + 三头、有氧、腿、腿2、腿 + 肩(g3)
+  eq(s.fitness.goals.length, 5, '到这一步应共 5 个目标');
+  logic.updateFitnessGoal(s, g3.id, { perWeek: 1 });
+  eq(g3.perWeek, 1);
+  eq(logic.removeFitnessGoal(s, g3.id).id, g3.id);
+  eq(s.fitness.goals.length, 4, '删掉 g3 后还剩 4 个');
+  eq(logic.removeFitnessGoal(s, '不存在'), null);
+});
+
+test('健身：概况统计与按类型分布', () => {
+  const s = fresh();
+  const t = '2026-10-08';
+  logic.setFitnessWeeklyGoal(s, 2);
+  logic.logWorkout(s, { date: '2026-10-05', type: '胸 + 三头', minutes: 40 });
+  logic.logWorkout(s, { date: '2026-10-07', type: '胸 + 三头', minutes: 50 });
+  logic.logWorkout(s, { date: '2026-10-06', type: '有氧', minutes: 30 });
+  logic.addFitnessGoal(s, { type: '胸 + 三头', perWeek: 2 });
+  logic.addFitnessNote(s, { text: '状态不错' });
+
+  const st = logic.fitnessStats(s, t);
+  eq(st.count, 3);
+  eq(st.minutesTotal, 120);
+  eq(st.minutesThisWeek, 120);
+  eq(st.weekDone, 3);
+  eq(st.weekGoal, 2);
+  eq(st.weekPercent, 100);
+  eq(st.todayDone, false, '今天(10-08)还没练');
+  eq(st.goals, 1);
+  eq(st.goalsReached, 1);
+  eq(st.notes, 1);
+
+  const types = logic.fitnessTypeStats(s);
+  eq(types.length, 2);
+  eq(types[0].type, '胸 + 三头', '练得多的排前面');
+  eq(types[0].count, 2);
+  eq(types[0].minutes, 90);
+  eq(types[1].type, '有氧');
+});
+
+test('健身：训练记录可增改删、可按日期倒序', () => {
+  const s = fresh();
+  const n = logic.addFitnessNote(s, { text: '  今天状态不错  ', date: '2026-10-07', mood: 'light' });
+  eq(n.text, '今天状态不错', '应去掉首尾空格');
+  eq(n.date, '2026-10-07');
+  eq(n.mood, 'light');
+  eq(logic.addFitnessNote(s, { text: '   ' }), null, '空内容应被拒绝');
+
+  const n2 = logic.addFitnessNote(s, { text: '后天记的', date: '2026-10-09' });
+  eq(logic.fitnessNotesSorted(s)[0].id, n2.id, '新的日期应排前面');
+
+  logic.updateFitnessNote(s, n.id, { text: '改成这样', mood: 'hard' });
+  eq(n.text, '改成这样');
+  eq(n.mood, 'hard');
+  logic.updateFitnessNote(s, n.id, { text: '  ' });
+  eq(n.text, '改成这样', '空白内容不应覆盖');
+
+  eq(logic.removeFitnessNote(s, n2.id).id, n2.id);
+  eq(s.fitness.notes.length, 1);
+  eq(logic.removeFitnessNote(s, '不存在'), null);
+});
+
+test('健身：编辑与删除某次训练', () => {
+  const s = fresh();
+  const a = logic.logWorkout(s, { date: '2026-10-08', type: '有氧', minutes: 30 });
+
+  logic.updateWorkout(s, a.id, { type: '核心', minutes: 25, intensity: 'light', note: '改了' });
+  eq(a.type, '核心');
+  eq(a.minutes, 25);
+  eq(a.intensity, 'light');
+  eq(a.note, '改了');
+  // 非法强度不该写进去
+  logic.updateWorkout(s, a.id, { intensity: '乱写' });
+  eq(a.intensity, 'light', '非法强度应保持原值');
+
+  eq(logic.removeWorkout(s, a.id).id, a.id);
+  eq(s.fitness.log.length, 0);
+  eq(logic.removeWorkout(s, '不存在'), null);
+});
+
+test('健身：日历标记显示当天训练时长（R20.8）', () => {
+  const s = fresh();
+  logic.logWorkout(s, { date: '2026-10-08', type: '有氧', minutes: 35 });
+  logic.logWorkout(s, { date: '2026-10-09', type: '有氧', minutes: 20 });
+
+  const marks = logic.calendarMarks(s, 'fitness', 2026, 10);
+  eq(marks['2026-10-08'].extra, '35 分钟');
+  eq(marks['2026-10-09'].extra, '20 分钟');
+
+  // 只写了动作、没写时长的，标记成"已练"
+  const s2 = fresh();
+  logic.logWorkout(s2, { date: '2026-10-08', exercises: [{ name: '引体向上', sets: 3, reps: 8 }] });
+  eq(logic.calendarMarks(s2, 'fitness', 2026, 10)['2026-10-08'].extra, '已练');
+
+  // 统计图表也要认得健身
+  logic.addTask(s, { title: '练一组', module: 'fitness', date: '2026-10-08' });
+  const slices = logic.chartSlices(s, 'all', 'week', '2026-10-08');
+  ok(slices.some((x) => x.key === 'fitness'), '汇总图里应出现健身');
+});
+
+test('健身：推到今日会生成一条归属健身的任务', () => {
+  const s = fresh();
+  const t = '2026-10-08';
+
+  const task = logic.pushWorkoutToToday(s, t);
+  eq(task.module, 'fitness', '应归属健身模块');
+  eq(task.date, t);
+  ok(task.title.includes('训练'), '标题应提到训练：' + task.title);
+
+  // 今天已经练过了，标题应换一个说法
+  logic.logWorkout(s, { date: t, minutes: 30 });
+  const t2 = logic.pushWorkoutToToday(s, t);
+  ok(t2.title.includes('再做一次'), '已练过时标题应不同：' + t2.title);
+});
+
+test('健身：每周目标可设置，非法值回落且不写坏数据', () => {
+  const s = fresh();
+  eq(logic.getFitnessWeeklyGoal(s), 3, '默认每周 3 次');
+
+  eq(logic.setFitnessWeeklyGoal(s, 5), 5, '应返回生效值');
+  eq(s.settings.fitnessWeeklyGoal, 5, '应写进数据');
+
+  eq(logic.setFitnessWeeklyGoal(s, 0), 3, '0 应回落到默认');
+  eq(logic.setFitnessWeeklyGoal(s, -2), 3, '负数应回落到默认');
+  eq(logic.setFitnessWeeklyGoal(s, 999), 3, '超过上限应回落');
+
+  // 手改数据也要能救回来
+  eq(logic.normalizeState({ settings: { fitnessWeeklyGoal: 'abc' } }).settings.fitnessWeeklyGoal, 3);
+  eq(logic.normalizeState({ settings: { fitnessWeeklyGoal: 4 } }).settings.fitnessWeeklyGoal, 4);
+});
+
+test('健身：旧的 {routine, records} 数据能被规整，不报错（R20.11）', () => {
+  // 旧结构：routine 是固定周计划，records 是按日期键的打卡
+  const n = logic.normalizeState({
+    fitness: {
+      routine: [{ label: '胸 + 三头', rest: false, exercises: [{ name: '卧推', sets: 4, reps: 12 }] }],
+      records: {
+        '2026-10-08': { label: '胸 + 三头', exercises: {}, finished: true },
+        '2026-10-09': { finished: true },
+      },
+    },
+  });
+
+  // 结构被换成新的三段式
+  ok(Array.isArray(n.fitness.log), 'fitness.log 应是数组');
+  ok(Array.isArray(n.fitness.goals), 'fitness.goals 应是数组');
+  ok(Array.isArray(n.fitness.notes), 'fitness.notes 应是数组');
+  eq('routine' in n.fitness, false, '旧的 routine 应被删掉');
+  eq('records' in n.fitness, false, '旧的 records 应被删掉');
+
+  // 旧打卡被迁移成日志，不会丢
+  eq(n.fitness.log.length, 2, '旧的两天打卡应迁移成两条日志');
+  const days = n.fitness.log.map((r) => r.date).sort();
+  deepEq(days, ['2026-10-08', '2026-10-09']);
+  const first = n.fitness.log.find((r) => r.date === '2026-10-08');
+  eq(first.type, '胸 + 三头', '旧的 label 应变成类型');
+  ok(first.minutes > 0, '没写时长的旧记录应给一个下限，保证这条记录有意义');
+
+  // 完全合法的数据不该被动
+  const clean = logic.normalizeState(logic.createInitialState());
+  deepEq(clean.fitness, { log: [], goals: [], notes: [] });
+});
+
+test('健身：新记的数据不会被当成"已移除模块残留"删掉（R20.12 回归）', () => {
+  /*
+   * 这是加回健身时最容易踩的坑：
+   * fitness 曾经在"已移除模块"清单里，如果忘了拿掉，
+   * 用户每次读取数据，新记的健身记录都会被清理掉。
+   */
+  const s = fresh();
+  logic.logWorkout(s, { date: '2026-10-08', type: '有氧', minutes: 30 });
+  logic.addFitnessGoal(s, { type: '有氧', perWeek: 2 });
+  logic.addFitnessNote(s, { text: '练完很舒服' });
+  logic.addTask(s, { title: '练一组', module: 'fitness', date: '2026-10-08' });
+
+  const cleaned = logic.normalizeState(JSON.parse(JSON.stringify(s)));
+
+  eq(cleaned.fitness.log.length, 1, '健身日志应保留');
+  eq(cleaned.fitness.goals.length, 1, '训练目标应保留');
+  eq(cleaned.fitness.notes.length, 1, '训练记录应保留');
+  ok(cleaned.tasks.some((x) => x.module === 'fitness'), '归属健身的任务应保留');
+
+  // 清理报告里不该出现健身
+  const report = logic.purgeRemovedModules(JSON.parse(JSON.stringify(s)));
+  eq(report.some((r) => r.id === 'fitness'), false, '健身不该出现在清理报告里');
 });
 
 /* ---------------- 日历聚合 ---------------- */
@@ -1194,9 +1607,10 @@ test('日历聚合：模块标签中文名正确', () => {
   eq(logic.moduleLabel('dev'), '开发');
   eq(logic.moduleLabel('study'), '学习');
   eq(logic.moduleLabel('diet'), '饮食');
+  eq(logic.moduleLabel('fitness'), '健身', '健身应有专属标签');
   eq(logic.moduleLabel('unknown'), '通用');
-  // 已移除模块的标签应回落到通用，而不是留一个"健身计划"
-  eq(logic.moduleLabel('fitness'), '通用', '已移除模块不应还有专属标签');
+  // 仍然移除的模块应回落到通用
+  eq(logic.moduleLabel('media'), '通用', '仍移除的模块不该有专属标签');
 });
 
 /* ---------------- 图表聚合 ---------------- */
@@ -1370,7 +1784,7 @@ test('dataAttrs 不会把 data- 前缀重复叠加（回归：曾生成 data-dat
   ok(html2.includes('data-id="z"'), '普通键应加 data- 前缀');
 });
 
-test('首页摘要：无内容时返回空数组', () => {
+test('首页摘要：没有待处理事项时只可能剩健身提醒', () => {
   const s = fresh();
   const today = date.todayStr();
   // 满足摘要的触发条件：三餐已定（否则会提醒晚饭没定）
@@ -1378,8 +1792,16 @@ test('首页摘要：无内容时返回空数组', () => {
     logic.setMeal(s, today, key, { text: '已安排' });
   }
 
+  /*
+   * 健身加回来后，"一次都没练"也算一件待处理的事，所以这里不再必然是空数组。
+   * 要验证的是：除健身之外没有别的提醒；把健身练够之后，摘要才真的为空。
+   */
   const sum = logic.homeSummary(s, today);
-  deepEq(sum, [], '没有任何待处理事项时应返回空数组（整个区块隐藏）');
+  deepEq(sum.map((x) => x.key), ['fitness-week'], '此时只该剩健身提醒');
+
+  logic.setFitnessWeeklyGoal(s, 1);
+  logic.logWorkout(s, { date: today, type: '有氧', minutes: 30 });
+  deepEq(logic.homeSummary(s, today), [], '健身也达标后，摘要应为空（整个区块隐藏）');
 });
 
 test('首页摘要：晚餐未定时会提醒', () => {
@@ -1393,14 +1815,23 @@ test('首页摘要：晚餐未定时会提醒', () => {
   eq(after.some((x) => x.key === 'dinner'), false, '定了晚饭就不该再提醒');
 });
 
-test('首页摘要：不再有健身相关的提醒项', () => {
+test('首页摘要：本周没练够时提醒去健身（模块已加回）', () => {
   const s = fresh();
   const today = date.todayStr();
+
+  // 一次都没练 → 应提醒，并指向健身模块
   const sum = logic.homeSummary(s, today);
-  eq(sum.some((x) => x.key === 'fitness-week'), false, '健身模块已移除，不该再有相关提醒');
-  for (const item of sum) {
-    notEq(item.route, 'fitness', '摘要不该再指向已移除的健身模块');
+  const fit = sum.find((x) => x.key === 'fitness-week');
+  ok(fit, '本周没练够时应有一条健身提醒');
+  eq(fit.route, 'fitness', '提醒应指向健身模块');
+
+  // 本周练够目标次数后就不该再提醒
+  logic.setFitnessWeeklyGoal(s, 2);
+  for (let i = 0; i < 2; i++) {
+    logic.logWorkout(s, { date: date.addDays(today, -i), type: '胸 + 三头', minutes: 40 });
   }
+  const after = logic.homeSummary(s, today);
+  eq(after.some((x) => x.key === 'fitness-week'), false, '本周练够了就不该再提醒');
 });
 
 test('首页摘要：灵感箱达到 3 条才提醒', () => {

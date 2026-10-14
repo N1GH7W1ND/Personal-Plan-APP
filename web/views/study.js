@@ -30,6 +30,9 @@ function studyRow(item) {
       ui.rowMeta(
         ui.tag(logic.STUDY_KINDS[item.kind] || '其他') +
         statusChip(item) +
+        (logic.normalizePriority(item.priority) !== logic.PRIORITY_DEFAULT
+          ? ui.tag(logic.priorityLabel(item.priority), logic.priorityTone(item.priority) || 'warn')
+          : '') +
         (item.minutes ? '<span class="muted">' + item.minutes + ' 分钟</span>' : '<span class="muted">未计时</span>') +
         (item.source ? '<span class="muted">' + ui.escapeHtml(item.source) + '</span>' : '')
       ),
@@ -142,9 +145,11 @@ export default {
           '<div class="field-row">' +
           '<div class="field"><label class="field-label">已学时长（分钟）</label>' +
           '<input class="input" type="number" min="0" data-field="minutes" value="' + (cur.minutes || 0) + '"></div>' +
+          '<div class="field"><label class="field-label">优先级</label>' +
+          ui.select('priority', logic.normalizePriority(cur.priority), logic.priorityOptions()) + '</div>' +
+          '</div>' +
           '<div class="field"><label class="field-label">出处</label>' +
           '<input class="input" type="text" data-field="source" value="' + ui.escapeHtml(cur.source || '') + '" placeholder="书名 / 课程名 / 链接"></div>' +
-          '</div>' +
           '<div class="field"><label class="field-label">备注</label>' +
           ui.textarea('note', cur.note, '笔记、要点、疑问…', 3) + '</div>',
         foot: '<button type="button" class="btn" data-act="close">取消</button>' +
@@ -158,6 +163,7 @@ export default {
               kind: ui.qs(root, '[data-field="kind"]').value,
               status: ui.qs(root, '[data-field="status"]').value,
               minutes: Number(ui.qs(root, '[data-field="minutes"]').value) || 0,
+              priority: ui.qs(root, '[data-field="priority"]').value,
               source: ui.qs(root, '[data-field="source"]').value,
               note: ui.qs(root, '[data-field="note"]').value,
             };

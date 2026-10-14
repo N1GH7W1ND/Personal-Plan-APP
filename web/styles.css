@@ -43,6 +43,7 @@
   --m-dev: #7cb0ff;
   --m-study: #b39bff;
   --m-reading: #5fd0c8;
+  --m-fitness: #ff8f6b;
   --m-diet: #f0b458;
   --m-general: #9aa6bd;
 
@@ -694,6 +695,7 @@ a { color: var(--primary); text-decoration: none; }
 .tag.m-dev     { background: rgba(124, 176, 255, .16); color: var(--m-dev); }
 .tag.m-study   { background: rgba(179, 155, 255, .16); color: var(--m-study); }
 .tag.m-reading { background: rgba(95, 208, 200, .16); color: var(--m-reading); }
+.tag.m-fitness { background: rgba(255, 143, 107, .16); color: var(--m-fitness); }
 .tag.m-diet    { background: rgba(240, 180, 88, .16); color: var(--m-diet); }
 .tag.m-general { background: rgba(154, 166, 189, .16); color: var(--m-general); }
 
@@ -1564,6 +1566,116 @@ a { color: var(--primary); text-decoration: none; }
 
 .check-line input { accent-color: var(--primary); width: 15px; height: 15px; }
 
+/* ---------------- 健身模块 ---------------- */
+
+/* 今天这块 */
+.fitness-today {
+  border: 1px solid var(--line-2);
+  border-left: 2px solid var(--m-fitness);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 143, 107, .06);
+  padding: 12px 14px;
+}
+
+.ft-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.ft-ex {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 10px;
+}
+
+.ex-chip {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, .06);
+  border-radius: var(--radius-pill);
+  padding: 3px 11px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.ex-chip b { color: var(--m-fitness); font-weight: 700; }
+
+.ft-note {
+  font-size: var(--fs-md);
+  color: var(--text-2);
+  white-space: pre-wrap;
+  margin-bottom: 10px;
+}
+
+.ft-actions { display: flex; gap: 7px; }
+
+/* 训练目标 */
+.goal-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, .035);
+  margin-bottom: 8px;
+  transition: background .16s, border-color .16s, transform .16s;
+}
+
+.goal-row:hover {
+  background: rgba(255, 255, 255, .07);
+  border-color: rgba(255, 143, 107, .3);
+  transform: translateX(2px);
+}
+
+.goal-row.reached {
+  border-left: 2px solid var(--ok);
+  background: rgba(95, 211, 154, .08);
+}
+
+.goal-row.flash { animation: flash 1.6s ease-out; }
+
+.goal-main { flex: 1 1 auto; min-width: 0; }
+
+.goal-title { font-size: var(--fs-md); font-weight: 600; margin-bottom: 8px; }
+
+.goal-actions { display: flex; align-items: center; gap: 6px; }
+
+.ok-text { color: var(--ok); font-size: var(--fs-xs); font-weight: 700; }
+
+/* 练得偏不偏 */
+.type-bars { display: flex; flex-direction: column; gap: 9px; }
+
+.type-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tb-name {
+  flex: 0 0 92px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tb-track { flex: 1 1 auto; }
+
+.type-bar-row .progress-bar {
+  background: linear-gradient(90deg, var(--m-fitness) 0%, var(--warn) 100%);
+}
+
+.tb-num {
+  flex: 0 0 96px;
+  text-align: right;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
 /* ---------------- 弹窗 / 提示 ---------------- */
 
 .modal-layer {

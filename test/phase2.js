@@ -32,11 +32,13 @@ t.test('空状态模板字段齐全', async () => {
   }
   t.deepEq(s.diet, { meals: {}, recipes: [], shopping: [] }, 'diet 结构');
   t.eq(s.settings.density, 'comfortable', '默认界面密度');
-  // 已移除模块的字段不应再出现在空模板里
-  for (const gone of ['fitness', 'media', 'consultTasks', 'consultRecords', 'games', 'playPlan']) {
+  // 仍然移除的模块字段不该出现
+  for (const gone of ['media', 'consultTasks', 'consultRecords', 'games', 'playPlan']) {
     t.eq(gone in s, false, '空模板不应再有 ' + gone + ' 字段');
   }
-  t.eq('fitnessWeeklyGoal' in s.settings, false, '设置里不应再有健身目标');
+  // 健身已加回来：结构与阅读同构，设置里也有每周目标
+  t.deepEq(s.fitness, { log: [], goals: [], notes: [] }, '健身空模板应是 log/goals/notes');
+  t.eq(s.settings.fitnessWeeklyGoal, 3, '设置里应有每周健身目标，默认 3');
 });
 
 t.test('normalize 能容忍残缺/手改数据', async () => {
@@ -44,15 +46,19 @@ t.test('normalize 能容忍残缺/手改数据', async () => {
   t.deepEq(n.tasks, [], 'tasks 应被修正为空数组');
   t.deepEq(n.diet, { meals: {}, recipes: [], shopping: [] }, 'diet 应被补齐');
   t.eq(n.settings.density, 'comfortable', '非法 density 应回落到 comfortable');
-  t.eq('fitness' in n, false, '传进来的已移除模块字段应被丢掉');
-  t.eq('fitnessWeeklyGoal' in n.settings, false, '设置里的健身目标也应被丢掉');
+  // 健身（加回来的模块）应被规整成三段结构，而不是丢掉
+  t.deepEq(n.fitness, { log: [], goals: [], notes: [] }, 'fitness 应被规整成 log/goals/notes');
+  t.eq(n.settings.fitnessWeeklyGoal, 3, '健身目标非法值应回落到 3');
 
   const n2 = h.store.normalize(null);
   t.eq(n2.schemaVersion, 1, '传入 null 也应返回合法模板');
   t.ok(Array.isArray(n2.tasks), 'tasks 应为数组');
 
-  const n3 = h.store.normalize({ fitness: { records: [1, 2] }, diet: { meals: [] } });
-  t.eq('fitness' in n3, false, '已移除模块字段应被丢掉');
+  const n3 = h.store.normalize({ fitness: { records: [1, 2], routine: [] }, diet: { meals: [] } });
+  t.deepEq(n3.fitness, { log: [], goals: [], notes: [] },
+    '旧的 fitness 结构应被换成新结构（record/routine 不再保留）');
+  t.eq('records' in n3.fitness, false, '旧字段 records 应被删掉');
+  t.eq('routine' in n3.fitness, false, '旧字段 routine 应被删掉');
   t.deepEq(n3.diet.meals, {}, 'diet.meals 是数组时应修正为对象');
 });
 
@@ -577,9 +583,11 @@ t.test('GET /api/health 会统计各类数据条数', async () => {
   t.eq(r.json.stats['采买'], 1, '采买数');
 
   // 已移除模块的统计项不应再出现
-  for (const gone of ['自媒体', '咨询待办', '咨询记录', '游戏', '放松安排', '健身记录']) {
+  for (const gone of ['自媒体', '咨询待办', '咨询记录', '游戏', '放松安排']) {
     t.eq(r.json.stats[gone], undefined, '不应再有「' + gone + '」统计项');
   }
+  // 健身已加回来：统计项应该有
+  t.eq(r.json.stats['健身记录'], 0, '应有「健身记录」统计项');
 });
 
 // ---------------- 已移除模块的数据清理 ----------------
@@ -668,20 +676,28 @@ t.test('读取时会清理旧字段并写回磁盘（回归：清理只发生在
   // 内存里是干净的
   t.eq(r.state.media, undefined, '内存状态里不该有 media');
   t.eq(r.state.games, undefined, '内存状态里不该有 games');
-  t.eq(r.state.fitness, undefined, '内存状态里不该有 fitness');
-  t.eq('fitnessWeeklyGoal' in r.state.settings, false, '设置里不该还有健身目标');
+  // 健身是加回来的模块，读取时**不能**被当成旧残留清掉
+  t.ok(r.state.fitness && Array.isArray(r.state.fitness.log), '内存状态里应有 fitness.log');
+  t.eq('fitnessWeeklyGoal' in r.state.settings, true, '设置里应保留健身目标');
   t.ok(Array.isArray(r.state.studyItems), '应补上 studyItems');
-  t.eq(r.state.tasks.length, 1, '只应留下不属于已移除模块的任务');
+  t.eq(r.state.tasks.length, 2, '通用任务与健身任务都应留下（健身不再是已移除模块）');
   t.eq(r.state.tasks[0].title, '送学生证', '通用任务必须保留');
+  t.ok(r.state.tasks.some((x) => x.module === 'fitness'),
+    '健身任务必须保留——把 fitness 当残留会删掉用户新记的数据');
 
   // 磁盘上也被清理了
   const onDiskAfter = fs.readFileSync(h.dataFile(dataDir), 'utf8');
   t.notIncludes(onDiskAfter, '"media"', '磁盘文件里不该再有 media');
   t.notIncludes(onDiskAfter, '"consultTasks"', '磁盘文件里不该再有 consultTasks');
   t.notIncludes(onDiskAfter, '"games"', '磁盘文件里不该再有 games');
-  t.notIncludes(onDiskAfter, '"fitness"', '磁盘文件里不该再有 fitness');
-  t.notIncludes(onDiskAfter, '卧推', '健身周安排也不该留在文件里');
-  t.notIncludes(onDiskAfter, '健身任务', '健身模块名下的任务也不该留在文件里');
+  /*
+   * 健身已加回来：磁盘上应当留有 fitness 的新结构（而不是旧结构）。
+   * 这里同时验证"旧结构被换掉"与"健身数据不再被当残留清掉"。
+   */
+  t.includes(onDiskAfter, '"fitness"', '磁盘上应保留 fitness 字段');
+  t.includes(onDiskAfter, '"log"', 'fitness 应是新的 log 结构');
+  t.notIncludes(onDiskAfter, '"routine"', '旧的 fitness.routine 不该留在文件里');
+  t.includes(onDiskAfter, '健身任务', '健身模块名下的任务必须留在文件里');
   t.notIncludes(onDiskAfter, '自媒体任务', '被删模块名下的任务也不该留在文件里');
   t.includes(onDiskAfter, '送学生证', '通用任务应仍在文件里');
 

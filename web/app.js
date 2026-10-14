@@ -18,6 +18,7 @@ import devView from './views/dev.js';
 import studyView from './views/study.js';
 import readingView from './views/reading.js';
 import dietView from './views/diet.js';
+import fitnessView from './views/fitness.js';
 import settingsView from './views/settings.js';
 
 const VIEWS = {
@@ -27,6 +28,7 @@ const VIEWS = {
   study: studyView,
   reading: readingView,
   diet: dietView,
+  fitness: fitnessView,
   settings: settingsView,
 };
 

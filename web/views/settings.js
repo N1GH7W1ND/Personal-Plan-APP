@@ -16,6 +16,8 @@ function dataCounts(state) {
     { num: state.studyItems.length, label: '学习条目' },
     { num: state.books.length, label: '书' },
     { num: state.bookNotes.length, label: '读书笔记' },
+    { num: state.fitness.log.length, label: '健身记录' },
+    { num: state.fitness.goals.length, label: '训练目标' },
     { num: state.diet.recipes.length + state.diet.shopping.length, label: '菜谱与采买' },
     { num: logic.studyMinutesTotal(state), label: '累计学习(分钟)' },
   ];
@@ -73,12 +75,15 @@ export default {
         '<div class="field"><label class="field-label">每日阅读目标（分钟）</label>' +
         '<input class="input" type="number" min="1" max="480" data-field="readingDailyGoal" value="' +
           Number(state.settings.readingDailyGoal) + '"></div>' +
+        '<div class="field"><label class="field-label">每周健身目标（次）</label>' +
+        '<input class="input" type="number" min="1" max="21" data-field="fitnessWeeklyGoal" value="' +
+          Number(state.settings.fitnessWeeklyGoal) + '"></div>' +
+        '</div>' +
         '<div class="field"><label class="field-label">界面密度</label>' +
         ui.select('density', state.settings.density, [
           { value: 'comfortable', label: '舒适' },
           { value: 'compact', label: '紧凑' },
         ]) +
-        '</div>' +
         '</div>' +
         '<p class="muted small" style="margin-bottom:0">“新的一天”以本机时间 0 点为界，固定不可改（见 PRD D9）。</p>',
     }) +
@@ -180,6 +185,16 @@ export default {
         ui.toast('每日阅读目标已改为 ' + applied + ' 分钟', { type: 'ok', duration: 2000 });
       };
     }
+    const fitGoal = root.querySelector('[data-field="fitnessWeeklyGoal"]');
+    if (fitGoal) {
+      fitGoal.onchange = () => {
+        const v = Number(fitGoal.value);
+        // setFitnessWeeklyGoal 会把非法值归一，并返回实际生效的次数
+        const applied = ctx.dispatch((s) => logic.setFitnessWeeklyGoal(s, v), '改每周健身目标');
+        ui.toast('每周健身目标已改为 ' + applied + ' 次', { type: 'ok', duration: 2000 });
+      };
+    }
+
     const density = root.querySelector('[data-field="density"]');
     if (density) {
       density.onchange = () => {

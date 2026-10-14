@@ -172,33 +172,49 @@ export default {
     // 图表操作（切时间范围 / 点柱子扇区看明细）
     if (ui.handleChartClick(act, 'dev', helpers.rerender)) return;
 
+    /**
+     * 新增/编辑开发待办。
+     * 传 null 表示新增。新增也走这个完整弹窗（而不是只问一个标题的简易框），
+     * 这样优先级、状态、备注在新增时就能一次填好——与任务弹窗保持一致。
+     */
     const openEditor = (item) => {
+      const isNew = !item;
+      const cur = item || { title: '', status: 'todo', priority: logic.PRIORITY_DEFAULT, note: '' };
       ui.openModal({
-        title: '编辑开发待办',
+        title: isNew ? '新增开发待办' : '编辑开发待办',
         body:
           '<div class="field"><label class="field-label">内容</label>' +
-          '<input class="input" type="text" data-field="title" value="' + ui.escapeHtml(item.title) + '"></div>' +
+          '<input class="input" type="text" data-field="title" value="' + ui.escapeHtml(cur.title) +
+          '" placeholder="例如：改登录接口 bug"></div>' +
           '<div class="field-row">' +
           '<div class="field"><label class="field-label">状态</label>' +
-          ui.select('status', item.status, logic.DEV_ORDER.map((s) => ({ value: s, label: logic.DEV_STATUS[s] }))) + '</div>' +
+          ui.select('status', cur.status, logic.DEV_ORDER.map((s) => ({ value: s, label: logic.DEV_STATUS[s] }))) + '</div>' +
           '<div class="field"><label class="field-label">优先级</label>' +
-          ui.select('priority', item.priority, logic.priorityOptions()) + '</div>' +
+          ui.select('priority', logic.normalizePriority(cur.priority), logic.priorityOptions()) + '</div>' +
           '</div>' +
           '<div class="field"><label class="field-label">备注</label>' +
-          ui.textarea('note', item.note, '复现步骤、方案、链接…', 3) + '</div>',
+          ui.textarea('note', cur.note, '复现步骤、方案、链接…', 3) + '</div>',
         foot: '<button type="button" class="btn" data-act="close">取消</button>' +
           '<button type="button" class="btn btn-primary" data-act="save">保存</button>',
         onMount(root) {
           ui.qs(root, '[data-act="save"]').onclick = () => {
             const title = ui.qs(root, '[data-field="title"]').value.trim();
-            if (!title) return;
-            store.dispatch((s) => logic.updateDevTask(s, id, {
+            if (!title) {
+              ui.toast('内容不能为空', { type: 'warn' });
+              return;
+            }
+            const payload = {
               title,
               status: ui.qs(root, '[data-field="status"]').value,
               priority: ui.qs(root, '[data-field="priority"]').value,
               note: ui.qs(root, '[data-field="note"]').value,
-            }), { label: '编辑开发待办' });
+            };
             ui.closeModal();
+            if (isNew) {
+              store.dispatch((s) => logic.addDevTask(s, payload), { label: '新增开发待办' });
+            } else {
+              store.dispatch((s) => logic.updateDevTask(s, id, payload), { label: '编辑开发待办' });
+            }
             helpers.rerender();
           };
         },
@@ -206,12 +222,7 @@ export default {
     };
 
     if (type === 'dev-new') {
-      ui.promptDialog({ title: '新增开发待办', label: '内容', placeholder: '例如：改登录接口 bug', okText: '添加' })
-        .then((title) => {
-          if (!title) return;
-          store.dispatch((s) => logic.addDevTask(s, { title }), { label: '新增开发待办' });
-          helpers.rerender();
-        });
+      openEditor(null);
       return;
     }
 

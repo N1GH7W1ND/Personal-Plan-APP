@@ -160,9 +160,11 @@ test('导出备份能拿到包含全部数据的文件（F1）', async () => {
   eq(parsed.notes.length, before.notes.length, '备忘条数应一致');
   eq(parsed.studyItems.length, before.studyItems.length, '学习条目数应一致');
   // 已移除模块的内容不应出现在导出文件里
-  for (const gone of ['media', 'consultTasks', 'consultRecords', 'games', 'playPlan', 'fitness']) {
+  for (const gone of ['media', 'consultTasks', 'consultRecords', 'games', 'playPlan']) {
     eq(gone in parsed, false, '导出文件不应含已移除模块字段 ' + gone);
   }
+  // 健身已加回来，导出里应当有它
+  ok(parsed.fitness && Array.isArray(parsed.fitness.log), '导出文件应含 fitness.log');
 
   // 导出的文件本身应当能被当作备份导入回去
   ok(storeModule.looksLikeState(parsed), '导出的内容应被识别为本应用备份');
@@ -347,10 +349,13 @@ test('设置页不再有健身目标（模块已移除）', async () => {
   await store.clearAll();
   await go('settings');
 
+  // 健身已加回来：设置页应该有"每周健身目标"
   const goal = view().querySelector('[data-field="fitnessWeeklyGoal"]');
-  eq(goal, null, '健身目标下拉应已移除');
-  notOk(view().innerHTML.includes('健身'), '设置页不该再出现健身字样');
-  eq('fitnessWeeklyGoal' in store.getState().settings, false, '数据里也不该再有健身目标');
+  ok(goal, '设置页应有「每周健身目标」输入框');
+  eq(goal.value, String(store.getState().settings.fitnessWeeklyGoal),
+    '输入框应显示当前值');
+  ok(view().innerHTML.includes('健身'), '设置页应出现健身字样');
+  ok('fitnessWeeklyGoal' in store.getState().settings, '数据里应有健身目标');
 });
 
 test('改界面密度会切换紧凑模式并落盘', async () => {

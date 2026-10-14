@@ -63,7 +63,7 @@ test('date.js 内部不使用 UTC 截取的方式取日期', () => {
 test('前端各模块源码里没有用 toISOString().slice(0,10) 取日期', () => {
   const files = ['app.js', 'store.js', 'logic.js', 'router.js', 'ui.js', 'api.js',
     'views/home.js', 'views/today.js', 'views/dev.js', 'views/study.js',
-    'views/reading.js', 'views/diet.js', 'views/settings.js'];
+    'views/reading.js', 'views/diet.js', 'views/fitness.js', 'views/settings.js'];
   for (const f of files) {
     const abs = join(ROOT, 'web', f);
     // 这些文件都是必须存在的：缺文件应当直接报出来，而不是被静默跳过
@@ -72,7 +72,8 @@ test('前端各模块源码里没有用 toISOString().slice(0,10) 取日期', ()
     eq(/toISOString\s*\(\s*\)\s*\.\s*slice/.test(code), false, f + ' 里用 toISOString().slice 取日期了');
   }
   // 已移除的模块视图不应还在磁盘上
-  for (const gone of ['views/media.js', 'views/consult.js', 'views/games.js', 'views/fitness.js']) {
+  // 仅列出仍然移除的模块（健身已加回来，因此不在此列）
+  for (const gone of ['views/media.js', 'views/consult.js', 'views/games.js']) {
     eq(existsSync(join(ROOT, 'web', gone)), false, '已移除的视图不该还存在：web/' + gone);
   }
 });

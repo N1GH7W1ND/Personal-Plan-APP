@@ -30,8 +30,9 @@ function emptyState() {
     books: [],
     readLog: [],
     bookNotes: [],
+    fitness: { log: [], goals: [], notes: [] },
     diet: { meals: {}, recipes: [], shopping: [] },
-    settings: { density: 'comfortable', readingDailyGoal: 30 },
+    settings: { density: 'comfortable', readingDailyGoal: 30, fitnessWeeklyGoal: 3 },
   };
 }
 
@@ -71,8 +72,12 @@ function normalize(input) {
   if (!input || typeof input !== 'object') return base;
   const out = Object.assign(base, input);
 
-  // 已移除模块的字段直接丢掉（自媒体、咨询工作、游戏娱乐、健身计划）
-  const removedFields = ['media', 'consultTasks', 'consultRecords', 'games', 'playPlan', 'studyLog', 'fitness'];
+  /*
+   * 已移除模块的字段直接丢掉（自媒体、咨询工作、游戏娱乐）。
+   * 注意：fitness（健身）已经加回来了，**不能**留在这里——
+   * 否则用户新记的健身数据每次读取都会被当作残留删掉。
+   */
+  const removedFields = ['media', 'consultTasks', 'consultRecords', 'games', 'playPlan', 'studyLog'];
   for (const f of removedFields) delete out[f];
 
   const arrFields = ['tasks', 'notes', 'devTasks', 'devIdeas', 'studyItems', 'books', 'readLog', 'bookNotes'];
@@ -81,8 +86,16 @@ function normalize(input) {
   }
 
   // 已移除模块名下的任务也一并清掉（模块本身已不存在，留着会变成无处可去的孤儿数据）
-  const removedModuleIds = ['media', 'consult', 'game', 'fitness'];
+  const removedModuleIds = ['media', 'consult', 'game'];
   out.tasks = out.tasks.filter((t) => t && !removedModuleIds.includes(t.module));
+
+  // 健身：与阅读同构（日志 + 目标 + 记录）；旧的 {routine, records} 只保留结构骨架
+  if (!out.fitness || typeof out.fitness !== 'object' || Array.isArray(out.fitness)) out.fitness = {};
+  if (!Array.isArray(out.fitness.log)) out.fitness.log = [];
+  if (!Array.isArray(out.fitness.goals)) out.fitness.goals = [];
+  if (!Array.isArray(out.fitness.notes)) out.fitness.notes = [];
+  delete out.fitness.records;
+  delete out.fitness.routine;
 
   if (!out.diet || typeof out.diet !== 'object') out.diet = { meals: {}, recipes: [], shopping: [] };
   if (!out.diet.meals || typeof out.diet.meals !== 'object' || Array.isArray(out.diet.meals)) out.diet.meals = {};
@@ -90,15 +103,15 @@ function normalize(input) {
   if (!Array.isArray(out.diet.shopping)) out.diet.shopping = [];
 
   if (!out.settings || typeof out.settings !== 'object') out.settings = {};
-  // 健身模块移除后，设置里的健身目标也成了无用字段，一并清掉
-  const removedSettings = ['fitnessWeeklyGoal'];
-  for (const k of removedSettings) delete out.settings[k];
   if (out.settings.density !== 'compact' && out.settings.density !== 'comfortable') {
     out.settings.density = 'comfortable';
   }
   // 每日阅读目标：1–480 分钟，非法值回落 30
   const goal = Number(out.settings.readingDailyGoal);
   out.settings.readingDailyGoal = Number.isFinite(goal) && goal >= 1 && goal <= 480 ? Math.round(goal) : 30;
+  // 每周健身目标：1–21 次，非法值回落 3
+  const fg = Number(out.settings.fitnessWeeklyGoal);
+  out.settings.fitnessWeeklyGoal = Number.isFinite(fg) && fg >= 1 && fg <= 21 ? Math.round(fg) : 3;
 
   out.schemaVersion = 1;
   out.revision = Number.isFinite(out.revision) ? Number(out.revision) : 0;
