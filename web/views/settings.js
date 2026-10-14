@@ -68,8 +68,8 @@ export default {
         '</div>',
     }) +
     ui.card({
-      title: '左侧栏显示哪些模块',
-      sub: '勾选要显示的，用 ↑ ↓ 调顺序；顺序也会影响「快速添加」里的模块顺序',
+      title: '左侧板块选择',
+      sub: '勾选要显示的板块，用 ↑ ↓ 调顺序',
       body: (() => {
         const on = logic.navModules(state);
         const rows = logic.NAV_MODULE_CHOICES.map((id) => {
@@ -79,10 +79,9 @@ export default {
           const name = logic.moduleName(id);
           return '<div class="nav-pick' + (checked ? ' on' : '') + '" data-module="' + id + '">' +
             '<label class="np-check">' +
-              '<input type="checkbox" data-nav-toggle="' + id + '"' + (checked ? ' checked' : '') +
-              (required ? ' disabled' : '') + '>' +
+              '<input type="checkbox" data-nav-toggle="' + id + '"' + (checked ? ' checked' : '') + '>' +
               '<span class="np-name">' + ui.escapeHtml(name) + '</span>' +
-              (required ? '<span class="np-lock" title="至少要保留一项">必留</span>' : '') +
+              (required ? '<span class="np-lock" title="一个都不勾时会回到这一项">保底</span>' : '') +
             '</label>' +
             '<span class="spacer"></span>' +
             (checked
@@ -94,9 +93,11 @@ export default {
         }).join('');
 
         return rows +
-          '<p class="muted small" style="margin:12px 0 0">' +
-          '首页总览、今日计划、数据与设置是应用骨架，固定显示、不在这里勾选。' +
-          '「学习」至少要保留一项，所以不能取消勾选。</p>';
+          '<div class="nav-pick-note">' +
+            '<p><b>至少要保留一个板块。</b>如果一个都不勾，会自动回到只显示「学习」。</p>' +
+            '<p>勾了两个及以上时，「学习」也可以取消。左侧的顺序也会用在「快速添加」的板块下拉里。</p>' +
+            '<p class="muted">首页总览、今日计划、数据与设置是应用骨架，固定显示，不在这里勾选。</p>' +
+          '</div>';
       })(),
     }) +
     ui.card({
@@ -248,9 +249,13 @@ export default {
         );
         const name = logic.moduleName(id);
         if (!box.checked && applied.includes(id)) {
-          // 被规则拦下了（学习必须保留），把勾恢复回去并说明原因
+          /*
+           * 被规则拦下了：取消这一项会让"一个都不剩"，
+           * 于是配置回到保底的「学习」。把勾恢复回去并说明原因。
+           */
           box.checked = true;
-          ui.toast('「' + name + '」至少要保留一项，不能全部隐藏', { type: 'warn', duration: 3000 });
+          ui.toast('至少要保留一个板块，已自动回到只显示「' + logic.moduleName(applied[0]) + '」',
+            { type: 'warn', duration: 3200 });
         } else {
           ui.toast(box.checked
             ? '左侧栏已显示「' + name + '」'

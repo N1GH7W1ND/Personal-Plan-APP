@@ -1015,9 +1015,12 @@ test('设置里勾选左侧栏模块：立刻反映到侧栏与快速添加（R2
     for (const id of logic.NAV_MODULE_CHOICES) {
       ok(view().querySelector('[data-nav-toggle="' + id + '"]'), '应有 ' + id + ' 的勾选框');
     }
-    // 学习是必留的，应被禁用
+    // 学习不再禁用：勾了两个以上时它也可以取消
     const studyBox = view().querySelector('[data-nav-toggle="study"]');
-    ok(studyBox.disabled, '「学习」的勾选框应被禁用（至少要保留一项）');
+    ok(!studyBox.disabled, '「学习」的勾选框不该被禁用（勾两个以上时它可以取消）');
+    // 说明文字要写清新规则
+    ok(view().innerHTML.includes('至少要保留一个板块'), '应有"至少要保留一个板块"的说明');
+    ok(view().innerHTML.includes('勾了两个及以上时'), '应说明勾两个以上时学习也可取消');
 
     const navRoutes = () => {
       const navEl = dom.document.getElementById('nav');
@@ -1135,28 +1138,59 @@ test('隐藏的模块仍然可以进：旧链接与任务标签不会跳丢（R2
   }
 });
 
-test('设置里全关也只留学习：不允许把侧栏清空（R21）', async () => {
+test('设置里全不勾：不允许清空，自动回到只显示学习（R21）', async () => {
   try {
     await go('settings');
-    // 逐个取消勾选（学习被禁用，点不动）
-    for (const id of ['dev', 'reading', 'diet', 'fitness']) {
+    const navRoutes = () => dom.document.getElementById('nav')
+      .querySelectorAll('.nav-item').map((a) => a.getAttribute('data-route'));
+
+    // 逐个取消勾选（包括学习）
+    for (const id of ['dev', 'reading', 'diet', 'fitness', 'study']) {
       const box = view().querySelector('[data-nav-toggle="' + id + '"]');
+      if (!box) continue;
       box.checked = false;
       box.fire('change', {});
       await waitRender();
     }
-    const navRoutes = () => dom.document.getElementById('nav')
-      .querySelectorAll('.nav-item').map((a) => a.getAttribute('data-route'));
-    deepEq(navRoutes(), ['home', 'today', 'study', 'settings'],
-      '全关之后只剩骨架 + 学习');
 
-    // 学习仍然可以被点开
+    deepEq(navRoutes(), ['home', 'today', 'study', 'settings'],
+      '全不勾之后只剩骨架 + 学习');
+    deepEq(logic.navModules(store.getState()), ['study'], '配置应回到只含学习');
+
     await go('study');
     assertNoViewError();
     ok(view().innerHTML.length > 100, '学习页应正常渲染');
+  } finally {
+    await resetAfterTest();
+  }
+});
 
-    // 数据里也应保留学习
-    ok(logic.navModules(store.getState()).includes('study'), '配置里必须含学习');
+test('设置里勾两个以上时可以把学习取消掉（回归）', async () => {
+  try {
+    await go('settings');
+    const navRoutes = () => dom.document.getElementById('nav')
+      .querySelectorAll('.nav-item').map((a) => a.getAttribute('data-route'));
+
+    // 先确保勾着开发与阅读（此时共三个：开发/学习/阅读）
+    store.dispatch((s) => logic.setNavModules(s, ['dev', 'study', 'reading']));
+    await waitRender();
+
+    // 现在取消学习 → 应真的取消（因为还剩开发与阅读）
+    const studyBox = view().querySelector('[data-nav-toggle="study"]');
+    ok(studyBox, '应有学习的勾选框');
+    studyBox.checked = false;
+    studyBox.fire('change', {});
+    await waitRender();
+
+    deepEq(navRoutes(), ['home', 'today', 'dev', 'reading', 'settings'],
+      '勾了两个以上时，取消学习应生效');
+    notOk(logic.navModules(store.getState()).includes('study'), '配置里不该再有学习');
+
+    // 快速添加下拉也要跟着去掉学习
+    await go('home');
+    const opts = view().querySelector('[data-field="module"]')
+      .querySelectorAll('option').map((o) => o.getAttribute('value'));
+    deepEq(opts, ['dev', 'reading'], '下拉里也不该有学习');
   } finally {
     await resetAfterTest();
   }
@@ -1173,11 +1207,11 @@ test('左侧栏配置会落盘，刷新后仍然生效', async () => {
     await store.load();
     await waitRender();
     await go('home');
-    deepEq(logic.navModules(store.getState()), ['reading', 'fitness', 'study'],
+    deepEq(logic.navModules(store.getState()), ['reading', 'fitness'],
       '刷新后配置应还在');
     const navRoutes = () => dom.document.getElementById('nav')
       .querySelectorAll('.nav-item').map((a) => a.getAttribute('data-route'));
-    deepEq(navRoutes(), ['home', 'today', 'reading', 'fitness', 'study', 'settings'],
+    deepEq(navRoutes(), ['home', 'today', 'reading', 'fitness', 'settings'],
       '侧栏应按存下来的配置渲染');
   } finally {
     await resetAfterTest();

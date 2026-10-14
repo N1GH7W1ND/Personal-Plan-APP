@@ -1570,42 +1570,84 @@ test('左侧栏配置：默认显示全部五个可配模块', () => {
   deepEq(logic.NAV_FIXED_IDS, ['home', 'today', 'settings'], '骨架项就是这三个');
 });
 
-test('左侧栏配置：乱数据会被规整，非法值与重复项都丢掉', () => {
-  eq(logic.sanitizeNavModules(null).length, 5, 'null 回落默认全开');
-  eq(logic.sanitizeNavModules('乱写').length, 5, '非数组回落默认');
-  eq(logic.sanitizeNavModules([]).length, 5, '空数组回落默认（否则左侧栏会空掉）');
-  eq(logic.sanitizeNavModules(['general', 'home', 'today', 'settings']).length, 5,
-    '全是非法值时回落默认');
+test('左侧板块选择：乱数据会被规整，非法值与重复项都丢掉', () => {
+  /*
+   * 规整规则（按本人要求）：
+   *   - 有合法项 → 原样用它（去重、去非法值），**不额外补学习**
+   *   - 一个合法项都没有（含 null / 非数组 / 空数组 / 全非法）→ 回到保底「学习」
+   */
+  deepEq(logic.sanitizeNavModules(null), ['study'], 'null 回到保底学习');
+  deepEq(logic.sanitizeNavModules('乱写'), ['study'], '非数组回到保底学习');
+  deepEq(logic.sanitizeNavModules([]), ['study'], '空数组回到保底学习（不能让左侧栏空掉）');
+  deepEq(logic.sanitizeNavModules(['general', 'home', 'today', 'settings']), ['study'],
+    '全是非法值时回到保底学习');
 
-  // 去重 + 去掉非法值，保留合法项的传入顺序
+  // 有合法项时：去重 + 丢非法值，保留传入顺序，不补学习
   deepEq(logic.sanitizeNavModules(['reading', 'dev', 'reading', '乱写', 'diet']),
-    ['reading', 'dev', 'diet', 'study'], '去重、丢非法值，并补上学习');
+    ['reading', 'dev', 'diet'], '去重、丢非法值，且不额外补学习');
 
   // 手改数据也要能救回来
   const n = logic.normalizeState({ settings: { navModules: 'not-an-array' } });
-  eq(n.settings.navModules.length, 5, 'normalizeState 应把非法值换成默认');
+  deepEq(n.settings.navModules, ['study'], 'normalizeState 应把非法值换成保底学习');
   const n2 = logic.normalizeState({ settings: { navModules: ['fitness', 'fitness', 'dev'] } });
-  deepEq(n2.settings.navModules, ['fitness', 'dev', 'study'], '去重并补学习');
+  deepEq(n2.settings.navModules, ['fitness', 'dev'], '去重，且不补学习');
 });
 
-test('左侧栏配置：至少保留一项，学习不能被关掉', () => {
+test('左侧板块选择：至少要保留一个，全不勾则回到学习', () => {
   const s = fresh();
 
   eq(logic.toggleNavModule(s, 'fitness', false).includes('fitness'), false, '可以关掉健身');
   eq(logic.toggleNavModule(s, 'dev', false).includes('dev'), false, '可以关掉开发');
 
-  // 试图把学习关掉 → 会被补回来
-  const after = logic.toggleNavModule(s, 'study', false);
-  ok(after.includes('study'), '学习被关掉后应自动补回来');
-
-  // 试图全部关掉 → 回落默认
+  /*
+   * 规则（按本人要求）：
+   *   - 一个都不勾 → 不允许，自动回到只显示「学习」
+   *   - 勾了两个及以上 → **学习也可以取消**
+   * 所以这里不再断言"学习永远在"，而是断言"至少有一个"。
+   */
   const all = logic.setNavModules(s, []);
-  ok(all.length >= 1, '不允许变成空配置');
-  ok(all.includes('study'), '回落后的配置里必须有学习');
+  deepEq(all, ['study'], '一个都不勾时应回到只显示学习');
 
-  // 只留一个非法值也一样
-  const only = logic.setNavModules(s, ['general']);
-  ok(only.includes('study'), '只剩非法值时也要回到含学习的合法配置');
+  const only = logic.setNavModules(s, ['general', 'media']);
+  deepEq(only, ['study'], '只剩非法值时也回到学习');
+
+  // 勾了两个及以上：可以不带学习
+  deepEq(logic.setNavModules(s, ['reading', 'diet']), ['reading', 'diet'],
+    '勾两个以上时不该强行塞进学习');
+  // 只勾一个，且不是学习 → 允许
+  deepEq(logic.setNavModules(s, ['reading']), ['reading'], '只剩一个时也可以不是学习');
+
+  // 只有一个板块时，把自己取消 → 回到学习
+  const s2 = fresh();
+  logic.setNavModules(s2, ['fitness']);
+  deepEq(logic.setNavModules(s2, []), ['study'], '取消唯一一个后回到学习');
+
+  // 任何配置下都必须至少有一项
+  for (const input of [[], ['general'], ['reading'], ['reading', 'diet'], null, '乱写']) {
+    ok(logic.sanitizeNavModules(input).length >= 1,
+      '任何输入都至少要留一项：' + JSON.stringify(input));
+  }
+});
+
+test('左侧板块选择：勾两个以上时学习可以被取消（回归）', () => {
+  const s = fresh();
+
+  // 之前这里会把学习强行补回来，导致"取消学习"在勾了两个时也不生效
+  const two = logic.sanitizeNavModules(['reading', 'diet']);
+  notOk(two.includes('study'), '勾了两个不该再自动补学习');
+
+  const three = logic.sanitizeNavModules(['dev', 'reading', 'fitness']);
+  deepEq(three, ['dev', 'reading', 'fitness'], '三个都不含学习时原样保留');
+
+  // 界面上的开关语义也一样
+  logic.setNavModules(s, ['dev', 'study', 'reading']);
+  const off = logic.toggleNavModule(s, 'study', false);
+  deepEq(off, ['dev', 'reading'], '此时取消学习应生效（还有两个）');
+
+  // 取消到只剩学习时，再取消就回到学习（等于没变）
+  logic.setNavModules(s, ['dev', 'study']);
+  deepEq(logic.toggleNavModule(s, 'dev', false), ['study'], '取消到只剩学习');
+  deepEq(logic.toggleNavModule(s, 'study', false), ['study'], '再取消学习 → 回到学习');
 });
 
 test('左侧栏配置：可见导航项的顺序与内容', () => {
@@ -1623,11 +1665,11 @@ test('左侧栏配置：可见导航项的顺序与内容', () => {
     ['home', 'today', 'study', 'reading', 'fitness', 'settings'],
     '关掉开发与饮食后，骨架项仍在，其余按配置顺序');
 
-  // 只留阅读，学习会被补在末尾
+  // 只留阅读 → 就只显示阅读（不再补学习）
   logic.setNavModules(s, ['reading']);
   deepEq(logic.visibleNavItems(s).map((x) => x.id),
-    ['home', 'today', 'reading', 'study', 'settings'],
-    '只留阅读时：阅读在前，学习补在末尾');
+    ['home', 'today', 'reading', 'settings'],
+    '只留阅读时：中间只有阅读');
 
   // 每个可见项都要有名称与图标
   for (const item of logic.visibleNavItems(s)) {
@@ -1713,12 +1755,12 @@ test('快速添加的模块与顺序 = 左侧栏勾选的内容与顺序', () =>
 
   // 只留阅读与开发，并把阅读排前面
   logic.setNavModules(s, ['reading', 'dev']);
-  deepEq(logic.quickAddModules(s).map((m) => m.id), ['reading', 'dev', 'study'],
+  deepEq(logic.quickAddModules(s).map((m) => m.id), ['reading', 'dev'],
     '下拉只含勾选的模块，且顺序一致');
 
   // 调顺序后下拉也变
   logic.moveNavModule(s, 'dev', -1);
-  deepEq(logic.quickAddModules(s).map((m) => m.id), ['dev', 'reading', 'study'],
+  deepEq(logic.quickAddModules(s).map((m) => m.id), ['dev', 'reading'],
     '调顺序后下拉顺序跟着变');
 
   // 关掉健身 → 下拉里没有健身
@@ -1743,8 +1785,8 @@ test('左侧栏配置：改完会随数据一起落盘与读回', () => {
 
   // 模拟"存盘再读回"
   const roundTrip = logic.normalizeState(JSON.parse(JSON.stringify(s)));
-  deepEq(roundTrip.settings.navModules, ['reading', 'fitness', 'study'], '配置应原样读回');
-  deepEq(logic.quickAddModules(roundTrip).map((m) => m.id), ['reading', 'fitness', 'study'],
+  deepEq(roundTrip.settings.navModules, ['reading', 'fitness'], '配置应原样读回');
+  deepEq(logic.quickAddModules(roundTrip).map((m) => m.id), ['reading', 'fitness'],
     '读回后下拉顺序也一致');
 });
 

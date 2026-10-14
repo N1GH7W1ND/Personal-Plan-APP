@@ -32,7 +32,10 @@ export const MODULE_IDS = MODULES.map((m) => m.id);
  */
 export const NAV_MODULE_CHOICES = ['dev', 'study', 'reading', 'diet', 'fitness'];
 
-/** 至少必须保留的模块（不能全关掉，否则左侧栏只剩骨架） */
+/**
+ * 一个都不勾时用的"保底板块"：学习。
+ * 注意：它只是保底，不是"永远必须存在"——勾了两个以上时它也可以取消。
+ */
 export const NAV_MODULE_REQUIRED = 'study';
 
 /** 默认可见的模块与顺序 */
@@ -52,15 +55,14 @@ export function sanitizeNavModules(input) {
   for (const id of Array.isArray(input) ? input : []) {
     if (NAV_MODULE_CHOICES.includes(id) && !seen.includes(id)) seen.push(id);
   }
-  if (!seen.length) return NAV_MODULE_DEFAULT.slice();
-  if (!seen.includes(NAV_MODULE_REQUIRED)) {
-    /*
-     * 学习是必须保留的：补在末尾。
-     * 追加而不是插到最前——插到最前会把用户排好的顺序整体后移，
-     * 让人以为自己调的顺序没生效。
-     */
-    seen.push(NAV_MODULE_REQUIRED);
-  }
+  /*
+   * 至少要保留一个板块：
+   *   - 一个都没勾 → 回到只显示「学习」这一项（学习是保底板块）
+   *   - 勾了一个或多个 → 原样使用，**学习也可以被取消**
+   *
+   * 这里刻意不再无条件补学习：勾了两个以上时，用户有权把学习去掉。
+   */
+  if (!seen.length) return [NAV_MODULE_REQUIRED];
   return seen;
 }
 

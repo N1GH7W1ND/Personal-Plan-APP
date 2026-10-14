@@ -1606,6 +1606,27 @@ a { color: var(--primary); text-decoration: none; }
 
 .np-name { font-size: var(--fs-md); color: var(--text); }
 
+/* 选择板块下方的说明文字 */
+.nav-pick-note {
+  margin-top: 12px;
+  padding: 11px 13px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, .025);
+}
+
+.nav-pick-note p {
+  margin: 0 0 7px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  line-height: 1.7;
+}
+
+.nav-pick-note p:last-child { margin-bottom: 0; }
+
+.nav-pick-note b { color: var(--text); }
+
+.nav-pick-note .muted { color: var(--text-3); }
 .np-lock {
   font-size: var(--fs-xs);
   color: var(--text-3);
