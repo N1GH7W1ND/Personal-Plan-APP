@@ -95,7 +95,7 @@
 ├─ PRD.md                       ← 需求（已存在）
 ├─ DEV-PLAN.md                  ← 本文件
 ├─ docs/
-│   └─ 页面结构与交互设计-v1.md   ← 设计稿（已存在）
+│   └─ 页面结构与交互设计.md   ← 设计稿（已存在）
 ├─ server/
 │   ├─ index.js                 启动流程、端口探测、开浏览器、优雅退出
 │   ├─ config.js                端口候选、路径常量、备份保留数、体积上限
@@ -168,7 +168,7 @@ task = {
 }
 // module ∈ media | dev | consult | fitness | diet | game | general
 
-note = { "id":"n_xxx", "text":"买猫粮", "done":false, "createdAt":"..." }   // 快速备忘，与任务隔离
+note = { "id":"n_xxx", "text":"买点水果", "done":false, "createdAt":"..." }   // 快速备忘，与任务隔离
 
 media = { "id":"m_xxx", "title":"...", "platform":"公众号",
           "status":"idea|writing|ready|published", "plannedDate":"2026-10-10",

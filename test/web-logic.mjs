@@ -374,8 +374,8 @@ test('entriesInMonth 按月过滤', () => {
 
 test('备忘与任务互不影响', () => {
   const s = fresh();
-  const n = logic.addNote(s, '  买猫粮  ');
-  eq(n.text, '买猫粮');
+  const n = logic.addNote(s, '  买点水果  ');
+  eq(n.text, '买点水果');
   eq(n.done, false);
   eq(s.notes.length, 1);
   eq(s.tasks.length, 0, '备忘不应变成任务');
@@ -391,9 +391,9 @@ test('备忘与任务互不影响', () => {
 
 test('便签升级为任务：便签消失、任务出现', () => {
   const s = fresh();
-  const n = logic.addNote(s, '问物业水费');
+  const n = logic.addNote(s, '交话费');
   const t = logic.noteToTask(s, n.id, { module: 'general', date: '2026-10-09' });
-  eq(t.title, '问物业水费');
+  eq(t.title, '交话费');
   eq(t.module, 'general');
   eq(t.date, '2026-10-09');
   eq(s.notes.length, 0, '便签应消失');

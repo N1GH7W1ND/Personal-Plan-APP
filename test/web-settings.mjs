@@ -78,7 +78,7 @@ async function go(route) {
 async function seed() {
   store.dispatch((s) => {
     logic.addTask(s, { title: '写周报', module: 'general' });
-    logic.addNote(s, '买猫粮');
+    logic.addNote(s, '买点水果');
     logic.addDevTask(s, { title: '修 bug' });
     logic.addDevIdea(s, '用缓存');
     logic.addStudyItem(s, { title: '看完事件循环', minutes: 30 });

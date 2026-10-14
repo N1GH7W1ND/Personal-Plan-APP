@@ -1310,12 +1310,12 @@ test('首页的快速备忘不归属任何板块（R23）', async () => {
       '快速备忘不该有板块选择框');
 
     // 存一条：数据里不该带 module，也不该算进任何板块
-    input.typeAndEnter('买猫粮');
+    input.typeAndEnter('买点水果');
     await waitRender();
 
     const notes = store.getState().notes;
     eq(notes.length, 1, '应存下这条备忘');
-    eq(notes[0].text, '买猫粮');
+    eq(notes[0].text, '买点水果');
     notOk('module' in notes[0], '备忘数据里不该有 module 字段');
 
     const today = date.todayStr();
@@ -1685,13 +1685,13 @@ test('快速备忘：新增不计入今日进度，勾选可划掉（PRD E2）',
   const noteInput = view().querySelector('[data-field="note-input"]');
   ok(noteInput, '应有备忘输入框');
 
-  noteInput.typeAndEnter('买猫粮');
+  noteInput.typeAndEnter('买点水果');
   await waitRender();
   assertNoViewError();
 
   const state = store.getState();
   eq(state.notes.length, 1, '应新增一条备忘');
-  eq(state.notes[0].text, '买猫粮');
+  eq(state.notes[0].text, '买点水果');
   deepEq(logic.todayProgress(state, date.todayStr()), progressBefore, '今日进度不应因备忘变化');
 
   const noteId = state.notes[0].id;
@@ -1724,7 +1724,7 @@ test('备忘升级为任务：便签消失、任务出现在今天（PRD E3）',
   eq(state.notes.some((n) => n.id === note.id), false, '便签应消失');
   eq(state.tasks.length, tasksBefore + 1, '应多出一条任务');
   const created = state.tasks[state.tasks.length - 1];
-  eq(created.title, '买猫粮', '任务内容应来自便签');
+  eq(created.title, '买点水果', '任务内容应来自便签');
   eq(created.date, date.todayStr(), '应排在今天');
 });
 

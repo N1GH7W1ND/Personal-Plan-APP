@@ -636,12 +636,12 @@ t.test('旧数据里被移除模块的内容会被清掉，且给出清理报告
   await resetDir('purge');
   const legacy = Object.assign(h.store.emptyState(), {
     media: [{ id: 'm1', title: '抖音发布我的视频' }],
-    consultTasks: [{ id: 'c1', title: '咨询导员' }],
-    consultRecords: [{ id: 'r1', who: '导员' }],
+    consultTasks: [{ id: 'c1', title: '联系导师' }],
+    consultRecords: [{ id: 'r1', who: '导师' }],
     games: [{ id: 'g1', name: '塞尔达' }],
     playPlan: [{ id: 'p1', weekday: 3 }],
     tasks: [
-      { id: 't1', title: '送学生证', module: 'general', date: '2026-10-13' },
+      { id: 't1', title: '示例任务', module: 'general', date: '2026-10-13' },
       { id: 't2', title: '自媒体任务', module: 'media', date: '2026-10-13' },
       { id: 't3', title: '咨询任务', module: 'consult', date: '2026-10-13' },
       { id: 't4', title: '游戏任务', module: 'game', date: '2026-10-13' },
@@ -657,7 +657,7 @@ t.test('旧数据里被移除模块的内容会被清掉，且给出清理报告
   t.eq(cleaned.playPlan, undefined, 'playPlan 字段应被清掉');
 
   t.eq(cleaned.tasks.length, 1, '只应留下不属已移除模块的任务');
-  t.eq(cleaned.tasks[0].title, '送学生证', '留下的应是通用任务');
+  t.eq(cleaned.tasks[0].title, '示例任务', '留下的应是通用任务');
   t.eq(cleaned.studyItems.length, 0, '应补出 studyItems 字段');
 
   // 写入磁盘后再读回，确认清理真的落盘
@@ -678,7 +678,7 @@ t.test('读取时会清理旧字段并写回磁盘（回归：清理只发生在
     revision: 7,
     updatedAt: '2026-10-01T00:00:00.000Z',
     tasks: [
-      { id: 't_keep', title: '送学生证', module: 'general', date: '2026-10-13', done: false },
+      { id: 't_keep', title: '示例任务', module: 'general', date: '2026-10-13', done: false },
       { id: 't_drop', title: '自媒体任务', module: 'media', date: '2026-10-13', done: false },
       { id: 't_fit', title: '健身任务', module: 'fitness', date: '2026-10-13', done: false },
     ],
@@ -686,7 +686,7 @@ t.test('读取时会清理旧字段并写回磁盘（回归：清理只发生在
     media: [{ id: 'm1', title: '抖音发布我的视频' }],
     devTasks: [],
     devIdeas: [],
-    consultTasks: [{ id: 'c1', title: '咨询导员' }],
+    consultTasks: [{ id: 'c1', title: '联系导师' }],
     consultRecords: [],
     fitness: {
       routine: [{ label: '胸 + 三头', rest: false, exercises: [{ id: 'e1', name: '卧推', sets: 4, reps: 12 }] }],
@@ -721,7 +721,7 @@ t.test('读取时会清理旧字段并写回磁盘（回归：清理只发生在
   t.eq('fitnessWeeklyGoal' in r.state.settings, true, '设置里应保留健身目标');
   t.ok(Array.isArray(r.state.studyItems), '应补上 studyItems');
   t.eq(r.state.tasks.length, 2, '通用任务与健身任务都应留下（健身不再是已移除模块）');
-  t.eq(r.state.tasks[0].title, '送学生证', '通用任务必须保留');
+  t.eq(r.state.tasks[0].title, '示例任务', '通用任务必须保留');
   t.ok(r.state.tasks.some((x) => x.module === 'fitness'),
     '健身任务必须保留——把 fitness 当残留会删掉用户新记的数据');
 
@@ -739,7 +739,7 @@ t.test('读取时会清理旧字段并写回磁盘（回归：清理只发生在
   t.notIncludes(onDiskAfter, '"routine"', '旧的 fitness.routine 不该留在文件里');
   t.includes(onDiskAfter, '健身任务', '健身模块名下的任务必须留在文件里');
   t.notIncludes(onDiskAfter, '自媒体任务', '被删模块名下的任务也不该留在文件里');
-  t.includes(onDiskAfter, '送学生证', '通用任务应仍在文件里');
+  t.includes(onDiskAfter, '示例任务', '通用任务应仍在文件里');
 
   const parsed = JSON.parse(onDiskAfter);
   t.eq(parsed.revision, 7, '磁盘上的版本号也应保持不变');

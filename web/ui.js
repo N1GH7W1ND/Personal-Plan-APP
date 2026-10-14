@@ -443,7 +443,7 @@ export function quickAddRow(opts) {
 /** 快速备忘列表 */
 export function noteList(notes) {
   if (!notes.length) {
-    return empty('✎', '随手记点什么', '比如"买猫粮"、"问物业水费"');
+    return empty('✎', '随手记点什么', '比如"买点水果"、"交话费"');
   }
   return '<div class="note-list">' + notes.map((n) =>
     '<div class="note' + (n.done ? ' done' : '') + '" data-id="' + escapeHtml(n.id) + '">' +

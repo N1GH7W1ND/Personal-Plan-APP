@@ -40,7 +40,7 @@ t.test('交付件齐全：启动脚本、说明、停止脚本、需求与计划
     'DEV-PLAN.md',
     'package.json',
     'LICENSE',
-    'docs/页面结构与交互设计-v1.md',
+    'docs/页面结构与交互设计.md',
     'server/index.js',
     'server/config.js',
     'server/static.js',
@@ -542,7 +542,7 @@ t.test('文档与源码里没有控制字符，反引号也不该落单', async 
   // 一次就把 PRD 里的 "fitness" 写成了 "\fitness"（看起来像 itness）。
   // 这类字符肉眼很难发现，所以固化成检查。
   const files = ['PRD.md', 'README.md', 'DEV-PLAN.md',
-    'docs/验收覆盖结论.md', 'docs/页面结构与交互设计-v1.md'];
+    'docs/验收覆盖结论.md', 'docs/页面结构与交互设计.md'];
 
   for (const f of files) {
     if (!exists(f)) continue;
