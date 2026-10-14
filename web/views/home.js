@@ -43,7 +43,7 @@ export default {
       title: '快速补一条',
       sub: '选好模块，写完回车',
       tight: true,
-      body: ui.quickAddRow({ modules: logic.quickAddModules() }),
+      body: ui.quickAddRow({ modules: logic.quickAddModules(state) }),
     });
 
     /* ---- 快速备忘 ---- */
@@ -83,7 +83,7 @@ export default {
       chartCard;
   },
 
-  mounted(root, ctx) {
+  mounted(root, ctx, helpers) {
     const noteInput = root.querySelector('[data-field="note-input"]');
     const quickInput = root.querySelector('[data-field="quick-title"]');
 
@@ -107,7 +107,12 @@ export default {
         const text = quickInput.value.trim();
         if (!text) return;
         const moduleSel = root.querySelector('[data-field="module"]');
-        const fallback = logic.quickAddModules()[0];
+        /*
+         * 下拉里没选模块时的兜底：取"当前可见模块"里的第一个。
+         * 顺序来自设置里的配置，所以兜底项也跟着用户排的顺序走。
+         */
+        const modules = logic.quickAddModules(helpers && helpers.store ? helpers.store.getState() : null);
+        const fallback = modules[0];
         ctx.addTask({
           title: text,
           module: moduleSel ? moduleSel.value : (fallback ? fallback.id : 'general'),

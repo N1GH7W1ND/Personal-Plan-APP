@@ -68,6 +68,38 @@ export default {
         '</div>',
     }) +
     ui.card({
+      title: '左侧栏显示哪些模块',
+      sub: '勾选要显示的，用 ↑ ↓ 调顺序；顺序也会影响「快速添加」里的模块顺序',
+      body: (() => {
+        const on = logic.navModules(state);
+        const rows = logic.NAV_MODULE_CHOICES.map((id) => {
+          const checked = on.includes(id);
+          const required = id === logic.NAV_MODULE_REQUIRED;
+          const idx = on.indexOf(id);
+          const name = logic.moduleName(id);
+          return '<div class="nav-pick' + (checked ? ' on' : '') + '" data-module="' + id + '">' +
+            '<label class="np-check">' +
+              '<input type="checkbox" data-nav-toggle="' + id + '"' + (checked ? ' checked' : '') +
+              (required ? ' disabled' : '') + '>' +
+              '<span class="np-name">' + ui.escapeHtml(name) + '</span>' +
+              (required ? '<span class="np-lock" title="至少要保留一项">必留</span>' : '') +
+            '</label>' +
+            '<span class="spacer"></span>' +
+            (checked
+              ? '<span class="np-order">第 ' + (idx + 1) + ' 位</span>' +
+                ui.iconBtn('↑', { act: 'nav-up', id }, '上移') +
+                ui.iconBtn('↓', { act: 'nav-down', id }, '下移')
+              : '<span class="muted small">未显示</span>') +
+          '</div>';
+        }).join('');
+
+        return rows +
+          '<p class="muted small" style="margin:12px 0 0">' +
+          '首页总览、今日计划、数据与设置是应用骨架，固定显示、不在这里勾选。' +
+          '「学习」至少要保留一项，所以不能取消勾选。</p>';
+      })(),
+    }) +
+    ui.card({
       title: '偏好设置',
       sub: '改了立刻生效',
       body:
@@ -102,6 +134,8 @@ export default {
     const act = ev.target.closest('[data-act]');
     if (!act) return;
     const type = act.getAttribute('data-act');
+    // 「上移/下移」这类按钮把模块 id 放在 data-id 上
+    const id = act.getAttribute('data-id');
 
     if (type === 'open-folder') {
       ctx.revealDataDir().then((res) => {
@@ -120,6 +154,14 @@ export default {
         else ui.toast('没有需要保存的改动', { duration: 2000 });
         helpers.rerender();
       });
+      return;
+    }
+
+    /* ---- 左侧栏显示哪些模块 ---- */
+    if (type === 'nav-up' || type === 'nav-down') {
+      const delta = type === 'nav-up' ? -1 : 1;
+      store.dispatch((s) => logic.moveNavModule(s, id, delta), { label: '调整模块顺序' });
+      helpers.rerender();
       return;
     }
 
@@ -174,7 +216,7 @@ export default {
     }
   },
 
-  mounted(root, ctx) {
+  mounted(root, ctx, helpers) {
     // 偏好设置：改完立刻写入
     const readGoal = root.querySelector('[data-field="readingDailyGoal"]');
     if (readGoal) {
@@ -192,6 +234,29 @@ export default {
         // setFitnessWeeklyGoal 会把非法值归一，并返回实际生效的次数
         const applied = ctx.dispatch((s) => logic.setFitnessWeeklyGoal(s, v), '改每周健身目标');
         ui.toast('每周健身目标已改为 ' + applied + ' 次', { type: 'ok', duration: 2000 });
+      };
+    }
+
+    // 左侧栏显示哪些模块：勾选即生效
+    for (const id of logic.NAV_MODULE_CHOICES) {
+      const box = root.querySelector('[data-nav-toggle="' + id + '"]');
+      if (!box) continue;
+      box.onchange = () => {
+        const applied = ctx.dispatch(
+          (s) => logic.toggleNavModule(s, id, box.checked),
+          box.checked ? '显示模块' : '隐藏模块'
+        );
+        const name = logic.moduleName(id);
+        if (!box.checked && applied.includes(id)) {
+          // 被规则拦下了（学习必须保留），把勾恢复回去并说明原因
+          box.checked = true;
+          ui.toast('「' + name + '」至少要保留一项，不能全部隐藏', { type: 'warn', duration: 3000 });
+        } else {
+          ui.toast(box.checked
+            ? '左侧栏已显示「' + name + '」'
+            : '左侧栏已隐藏「' + name + '」', { type: 'ok', duration: 2000 });
+        }
+        (helpers && helpers.rerender ? helpers.rerender : ctx.rerender)();
       };
     }
 

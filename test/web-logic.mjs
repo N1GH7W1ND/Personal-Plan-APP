@@ -1552,6 +1552,202 @@ test('健身：新记的数据不会被当成"已移除模块残留"删掉（R20
   eq(report.some((r) => r.id === 'fitness'), false, '健身不该出现在清理报告里');
 });
 
+/* ---------------- 左侧栏模块配置 ---------------- */
+
+test('左侧栏配置：默认显示全部五个可配模块', () => {
+  deepEq(logic.NAV_MODULE_CHOICES, ['dev', 'study', 'reading', 'diet', 'fitness'],
+    '可勾选的模块就这五个');
+  eq(logic.NAV_MODULE_REQUIRED, 'study', '至少要保留学习');
+
+  const s = fresh();
+  deepEq(s.settings.navModules, ['dev', 'study', 'reading', 'diet', 'fitness'], '默认全开');
+  deepEq(logic.navModules(s), ['dev', 'study', 'reading', 'diet', 'fitness']);
+
+  // 骨架项不可配置
+  for (const id of ['home', 'today', 'settings']) {
+    notOk(logic.NAV_MODULE_CHOICES.includes(id), id + ' 不该出现在可勾选清单里');
+  }
+  deepEq(logic.NAV_FIXED_IDS, ['home', 'today', 'settings'], '骨架项就是这三个');
+});
+
+test('左侧栏配置：乱数据会被规整，非法值与重复项都丢掉', () => {
+  eq(logic.sanitizeNavModules(null).length, 5, 'null 回落默认全开');
+  eq(logic.sanitizeNavModules('乱写').length, 5, '非数组回落默认');
+  eq(logic.sanitizeNavModules([]).length, 5, '空数组回落默认（否则左侧栏会空掉）');
+  eq(logic.sanitizeNavModules(['general', 'home', 'today', 'settings']).length, 5,
+    '全是非法值时回落默认');
+
+  // 去重 + 去掉非法值，保留合法项的传入顺序
+  deepEq(logic.sanitizeNavModules(['reading', 'dev', 'reading', '乱写', 'diet']),
+    ['reading', 'dev', 'diet', 'study'], '去重、丢非法值，并补上学习');
+
+  // 手改数据也要能救回来
+  const n = logic.normalizeState({ settings: { navModules: 'not-an-array' } });
+  eq(n.settings.navModules.length, 5, 'normalizeState 应把非法值换成默认');
+  const n2 = logic.normalizeState({ settings: { navModules: ['fitness', 'fitness', 'dev'] } });
+  deepEq(n2.settings.navModules, ['fitness', 'dev', 'study'], '去重并补学习');
+});
+
+test('左侧栏配置：至少保留一项，学习不能被关掉', () => {
+  const s = fresh();
+
+  eq(logic.toggleNavModule(s, 'fitness', false).includes('fitness'), false, '可以关掉健身');
+  eq(logic.toggleNavModule(s, 'dev', false).includes('dev'), false, '可以关掉开发');
+
+  // 试图把学习关掉 → 会被补回来
+  const after = logic.toggleNavModule(s, 'study', false);
+  ok(after.includes('study'), '学习被关掉后应自动补回来');
+
+  // 试图全部关掉 → 回落默认
+  const all = logic.setNavModules(s, []);
+  ok(all.length >= 1, '不允许变成空配置');
+  ok(all.includes('study'), '回落后的配置里必须有学习');
+
+  // 只留一个非法值也一样
+  const only = logic.setNavModules(s, ['general']);
+  ok(only.includes('study'), '只剩非法值时也要回到含学习的合法配置');
+});
+
+test('左侧栏配置：可见导航项的顺序与内容', () => {
+  const s = fresh();
+
+  // 默认
+  deepEq(logic.visibleNavItems(s).map((x) => x.id),
+    ['home', 'today', 'dev', 'study', 'reading', 'diet', 'fitness', 'settings'],
+    '默认顺序');
+
+  // 关掉两个
+  logic.toggleNavModule(s, 'dev', false);
+  logic.toggleNavModule(s, 'diet', false);
+  deepEq(logic.visibleNavItems(s).map((x) => x.id),
+    ['home', 'today', 'study', 'reading', 'fitness', 'settings'],
+    '关掉开发与饮食后，骨架项仍在，其余按配置顺序');
+
+  // 只留阅读，学习会被补在末尾
+  logic.setNavModules(s, ['reading']);
+  deepEq(logic.visibleNavItems(s).map((x) => x.id),
+    ['home', 'today', 'reading', 'study', 'settings'],
+    '只留阅读时：阅读在前，学习补在末尾');
+
+  // 每个可见项都要有名称与图标
+  for (const item of logic.visibleNavItems(s)) {
+    ok(item.name && item.icon, item.id + ' 应有名称与图标');
+  }
+});
+
+test('左侧栏配置：隐藏的模块仍然可以访问（旧链接与标签跳转不能跳丢）', () => {
+  const s = fresh();
+  logic.setNavModules(s, ['reading']);
+
+  const visible = logic.visibleNavItems(s).map((x) => x.id);
+  notOk(visible.includes('fitness'), '健身确实被隐藏了');
+  notOk(visible.includes('diet'), '饮食确实被隐藏了');
+
+  /*
+   * 关键：隐藏只是不显示在侧栏里，模块本身与路由都还在。
+   * 否则点了任务上的「健身」标签、或用旧书签进健身页，会掉到首页去。
+   */
+  for (const id of ['dev', 'study', 'reading', 'diet', 'fitness']) {
+    ok(logic.isModuleId(id), id + ' 仍应是合法模块（路由与任务归属都还在）');
+    ok(logic.MODULE_IDS.includes(id), id + ' 仍在模块清单里');
+  }
+  eq(logic.moduleName('fitness'), '健身', '健身的中文名也还在');
+});
+
+test('左侧栏配置：上移/下移一位，边界不动', () => {
+  const s = fresh();
+  // 默认：dev, study, reading, diet, fitness
+
+  deepEq(logic.moveNavModule(s, 'reading', -1), ['dev', 'reading', 'study', 'diet', 'fitness'],
+    '阅读上移一位');
+  deepEq(logic.moveNavModule(s, 'reading', 1), ['dev', 'study', 'reading', 'diet', 'fitness'],
+    '再下移一位回到原位');
+
+  // 边界：第一个再上移、最后一个再下移都不动
+  deepEq(logic.moveNavModule(s, 'dev', -1), ['dev', 'study', 'reading', 'diet', 'fitness'],
+    '第一个上移不动');
+  deepEq(logic.moveNavModule(s, 'fitness', 1), ['dev', 'study', 'reading', 'diet', 'fitness'],
+    '最后一个下移不动');
+  deepEq(logic.moveNavModule(s, '不存在', 1), ['dev', 'study', 'reading', 'diet', 'fitness'],
+    '不存在的模块不动');
+  deepEq(logic.moveNavModule(s, 'dev', 0), ['dev', 'study', 'reading', 'diet', 'fitness'],
+    '位移 0 不动');
+
+  // 连续调整能拼出任意顺序：健身从最后一位往上挪三步 → 落到第二位
+  logic.moveNavModule(s, 'fitness', -1);
+  logic.moveNavModule(s, 'fitness', -1);
+  logic.moveNavModule(s, 'fitness', -1);
+  deepEq(logic.navModules(s), ['dev', 'fitness', 'study', 'reading', 'diet'],
+    '上移三次应从第 5 位到第 2 位');
+
+  // 再上移一次就到最前
+  logic.moveNavModule(s, 'fitness', -1);
+  deepEq(logic.navModules(s), ['fitness', 'dev', 'study', 'reading', 'diet'], '健身挪到最前');
+  // 已经在最前，再上移不动
+  logic.moveNavModule(s, 'fitness', -1);
+  deepEq(logic.navModules(s)[0], 'fitness', '已是最前时上移不动');
+});
+
+test('左侧栏配置：勾选/取消勾选的开关语义', () => {
+  const s = fresh();
+  logic.setNavModules(s, ['dev', 'study']);
+
+  deepEq(logic.toggleNavModule(s, 'reading', true), ['dev', 'study', 'reading'], '勾上阅读，追加在末尾');
+  deepEq(logic.toggleNavModule(s, 'reading', true), ['dev', 'study', 'reading'], '重复勾选不产生重复项');
+  deepEq(logic.toggleNavModule(s, 'dev', false), ['study', 'reading'], '取消开发');
+  deepEq(logic.toggleNavModule(s, '不存在', true), ['study', 'reading'], '非法 id 不动');
+
+  // 不传第三参时按"取反"处理
+  deepEq(logic.toggleNavModule(s, 'dev'), ['study', 'reading', 'dev'], '不传值时取反（勾上）');
+  deepEq(logic.toggleNavModule(s, 'dev'), ['study', 'reading'], '再点一次取消');
+});
+
+test('快速添加的模块与顺序 = 左侧栏勾选的内容与顺序', () => {
+  const s = fresh();
+
+  // 默认：五个模块，顺序一致
+  deepEq(logic.quickAddModules(s).map((m) => m.id), logic.navModules(s),
+    '默认时下拉与左侧栏一致');
+  deepEq(logic.quickAddModules(s).map((m) => m.id),
+    ['dev', 'study', 'reading', 'diet', 'fitness']);
+
+  // 只留阅读与开发，并把阅读排前面
+  logic.setNavModules(s, ['reading', 'dev']);
+  deepEq(logic.quickAddModules(s).map((m) => m.id), ['reading', 'dev', 'study'],
+    '下拉只含勾选的模块，且顺序一致');
+
+  // 调顺序后下拉也变
+  logic.moveNavModule(s, 'dev', -1);
+  deepEq(logic.quickAddModules(s).map((m) => m.id), ['dev', 'reading', 'study'],
+    '调顺序后下拉顺序跟着变');
+
+  // 关掉健身 → 下拉里没有健身
+  logic.toggleNavModule(s, 'fitness', false);
+  notOk(logic.quickAddModules(s).some((m) => m.id === 'fitness'), '关掉的模块不该出现在下拉里');
+  logic.toggleNavModule(s, 'fitness', true);
+  ok(logic.quickAddModules(s).some((m) => m.id === 'fitness'), '勾上后应回来，且在末尾');
+
+  // 「通用」永远不是可选项（它是兜底分类）
+  for (const m of logic.quickAddModules(s)) {
+    notEq(m.id, 'general', '下拉里不该出现"通用"');
+  }
+
+  // 不传 state 时按默认（兼容旧调用）
+  deepEq(logic.quickAddModules().map((m) => m.id), ['dev', 'study', 'reading', 'diet', 'fitness']);
+});
+
+test('左侧栏配置：改完会随数据一起落盘与读回', () => {
+  const s = fresh();
+  logic.setNavModules(s, ['fitness', 'reading']);
+  logic.moveNavModule(s, 'reading', -1);
+
+  // 模拟"存盘再读回"
+  const roundTrip = logic.normalizeState(JSON.parse(JSON.stringify(s)));
+  deepEq(roundTrip.settings.navModules, ['reading', 'fitness', 'study'], '配置应原样读回');
+  deepEq(logic.quickAddModules(roundTrip).map((m) => m.id), ['reading', 'fitness', 'study'],
+    '读回后下拉顺序也一致');
+});
+
 /* ---------------- 日历聚合 ---------------- */
 
 test('日历聚合：按模块与月份分组当天任务，含完成数', () => {

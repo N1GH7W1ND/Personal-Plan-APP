@@ -43,6 +43,25 @@ class Element {
 
   get id() { return this.attributes.id || ''; }
 
+  /*
+   * 布尔属性：真实浏览器里 disabled 反映"属性在不在"，
+   * checked 既能反映属性、也能被脚本直接改（改的是当前勾选状态）。
+   * 少了这两个，测试里读 box.disabled / box.checked 会拿到 undefined，
+   * 于是"该禁用的没禁用"这类问题测不出来。
+   */
+  get disabled() { return this.attributes.disabled !== undefined; }
+  set disabled(v) {
+    if (v) this.attributes.disabled = '';
+    else delete this.attributes.disabled;
+  }
+
+  get checked() {
+    // 脚本改过就以改动为准，否则看属性
+    if (this._checkedOverride !== undefined) return this._checkedOverride;
+    return this.attributes.checked !== undefined;
+  }
+  set checked(v) { this._checkedOverride = !!v; }
+
   get value() {
     // 真实浏览器里 <select>.value 是当前选中项的 value，而不是某个属性
     if (this.tagName === 'SELECT') {

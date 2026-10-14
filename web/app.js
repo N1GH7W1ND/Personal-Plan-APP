@@ -124,7 +124,7 @@ const ctx = {
   noteToTask(id) {
     const note = logic.findNote(store.getState(), id);
     if (!note) return;
-    const modules = logic.quickAddModules();
+    const modules = logic.quickAddModules(store.getState());
     ui.modulePicker(modules.length ? modules[0].id : 'general', modules, (moduleId) => {
       store.dispatch((s) => logic.noteToTask(s, id, { module: moduleId, date: date.todayStr() }), { label: '便签变任务' });
       ui.toast('已变成任务并加入今天', { type: 'ok', duration: 2200 });
@@ -169,13 +169,32 @@ const ctx = {
    侧栏
    ============================================================ */
 
+/**
+ * 左侧栏。
+ *
+ * 每次重绘按"当前配置"重建一遍导航：设置里勾掉哪个模块，这里就不显示哪个。
+ * 顺序也来自配置，因此设置里调顺序会立刻反映到这里。
+ */
 function renderSidebar() {
   const state = store.getState();
   const today = date.todayStr();
   const pending = logic.pendingByModule(state, today);
+  const items = logic.visibleNavItems(state);
 
-  for (const item of logic.NAV_ITEMS) {
-    const link = document.querySelector('.nav-item[data-route="' + item.id + '"]');
+  // 只在结构真的变了时重建，避免每次重绘都替换 DOM（会打断动画与焦点）
+  const signature = items.map((x) => x.id).join(',');
+  if (el.nav && el.nav.getAttribute('data-signature') !== signature) {
+    el.nav.innerHTML = items.map((item) =>
+      '<a class="nav-item" href="#/' + item.id + '" data-route="' + item.id + '">' +
+        '<span class="nav-icon">' + ui.escapeHtml(item.icon) + '</span>' +
+        '<span class="nav-label">' + ui.escapeHtml(item.name) + '</span>' +
+        '<span class="nav-count" data-count="' + item.id + '"></span>' +
+      '</a>').join('');
+    el.nav.setAttribute('data-signature', signature);
+  }
+
+  for (const item of items) {
+    const link = el.nav ? el.nav.querySelector('.nav-item[data-route="' + item.id + '"]') : null;
     if (!link) continue;
     link.classList.toggle('active', item.id === router.currentRoute());
 
@@ -356,7 +375,7 @@ function renderNow() {
 
   if (view.mounted) {
     try {
-      view.mounted(el.view, ctx, { rerender, rerenderKeepingFocus });
+      view.mounted(el.view, ctx, { rerender, rerenderKeepingFocus, store });
     } catch (err) {
       console.error('[视图挂载出错]', route, err);
     }
@@ -416,9 +435,18 @@ export function stop() {
 function openQuickAdd(prefill) {
   const pre = prefill || {};
   const today = date.todayStr();
-  const moduleOptions = logic.quickAddModules().map((m) => ({ value: m.id, label: m.name }));
-  // 默认选中第一个模块（开发工作）；不再有"通用"这个选项
-  const defaultModule = moduleOptions.length ? moduleOptions[0].value : 'general';
+  const modules = logic.quickAddModules(store.getState());
+  const moduleOptions = modules.map((m) => ({ value: m.id, label: m.name }));
+  /*
+   * 默认选中下拉里的第一个模块，也就是"用户在设置里排在最前且勾选了"的那个。
+   * 不再有"通用"这个选项（它是兜底分类，不是可选项）。
+   */
+  const visibleIds = modules.map((m) => m.id);
+  const defaultModule = visibleIds.length ? visibleIds[0] : 'general';
+  // 预填的模块若已被隐藏，就退回默认项，避免下拉里出现选不中的值
+  const preModule = logic.isModuleId(pre.module) && visibleIds.includes(pre.module)
+    ? pre.module
+    : defaultModule;
 
   const body =
     '<div class="field"><label class="field-label">要做什么</label>' +
@@ -426,7 +454,7 @@ function openQuickAdd(prefill) {
     ui.escapeHtml(pre.title || '') + '"></div>' +
     '<div class="field-row">' +
     '<div class="field"><label class="field-label">属于哪个模块</label>' +
-    ui.select('module', logic.isModuleId(pre.module) && pre.module !== 'general' ? pre.module : defaultModule, moduleOptions) + '</div>' +
+    ui.select('module', preModule, moduleOptions) + '</div>' +
     '<div class="field"><label class="field-label">安排在哪天</label>' +
     '<input class="input" type="date" data-field="date" value="' + ui.escapeHtml(pre.date || today) + '"></div>' +
     '</div>' +
@@ -507,6 +535,7 @@ function showStartupNotices() {
 }
 
 export async function init() {
+  el.nav = document.getElementById('nav');
   el.pageTitle = document.getElementById('pageTitle');
   el.todayChip = document.getElementById('todayChip');
   el.view = document.getElementById('view');

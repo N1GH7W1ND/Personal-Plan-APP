@@ -26,14 +26,94 @@ export const MODULES = [
 
 export const MODULE_IDS = MODULES.map((m) => m.id);
 
-/**
- * 下拉里可以选择的模块。
- * 与左侧导航对齐：导航里有几个业务模块，这里就有几个，不多不少。
- * 「通用」是兜底分类（旧数据、临时任务会落到这里），不作为选项出现——
- * 否则下拉里会出现"导航里根本没有的模块"，与导航对不上。
+/*
+ * 左侧栏里"可以被勾选显示/隐藏"的模块，以及它们的默认顺序。
+ * 首页总览、今日计划、数据与设置不在其中——它们是应用骨架，不允许关掉。
  */
-export function quickAddModules() {
-  return MODULES.filter((m) => m.id !== 'general');
+export const NAV_MODULE_CHOICES = ['dev', 'study', 'reading', 'diet', 'fitness'];
+
+/** 至少必须保留的模块（不能全关掉，否则左侧栏只剩骨架） */
+export const NAV_MODULE_REQUIRED = 'study';
+
+/** 默认可见的模块与顺序 */
+export const NAV_MODULE_DEFAULT = NAV_MODULE_CHOICES.slice();
+
+/**
+ * 把任意来源的"可见模块配置"规整成合法值。
+ *
+ * 规则：
+ *   - 只保留允许的模块 id，去掉重复与非法值
+ *   - 顺序按传入的顺序（用户自己排的）
+ *   - 不在配置里的模块 = 不显示
+ *   - 必须至少保留 NAV_MODULE_REQUIRED（学习）；被清空时回落默认
+ */
+export function sanitizeNavModules(input) {
+  const seen = [];
+  for (const id of Array.isArray(input) ? input : []) {
+    if (NAV_MODULE_CHOICES.includes(id) && !seen.includes(id)) seen.push(id);
+  }
+  if (!seen.length) return NAV_MODULE_DEFAULT.slice();
+  if (!seen.includes(NAV_MODULE_REQUIRED)) {
+    /*
+     * 学习是必须保留的：补在末尾。
+     * 追加而不是插到最前——插到最前会把用户排好的顺序整体后移，
+     * 让人以为自己调的顺序没生效。
+     */
+    seen.push(NAV_MODULE_REQUIRED);
+  }
+  return seen;
+}
+
+/** 当前可见的模块（按用户排的顺序） */
+export function navModules(state) {
+  return sanitizeNavModules(state && state.settings ? state.settings.navModules : null);
+}
+
+/**
+ * 下拉里可以选择的模块 = 当前可见的模块（顺序完全一致）。
+ *
+ * 与左侧导航对齐：导航里显示哪几个业务模块，这里就有哪几个，顺序也一样。
+ * 「通用」是兜底分类（旧数据、临时任务会落到这里），不作为选项出现。
+ */
+export function quickAddModules(state) {
+  const ids = state ? navModules(state) : NAV_MODULE_DEFAULT;
+  return ids
+    .map((id) => MODULES.find((m) => m.id === id))
+    .filter(Boolean);
+}
+
+/** 设置可见模块（自动规整），返回实际生效的顺序 */
+export function setNavModules(state, input) {
+  const applied = sanitizeNavModules(input);
+  if (!state.settings || typeof state.settings !== 'object') state.settings = {};
+  state.settings.navModules = applied;
+  return applied;
+}
+
+/** 勾选/取消某个模块（取消时若会导致没有可显示模块，则拒绝） */
+export function toggleNavModule(state, id, on) {
+  if (!NAV_MODULE_CHOICES.includes(id)) return navModules(state);
+  const cur = navModules(state);
+  let next;
+  if (on === undefined ? !cur.includes(id) : !!on) {
+    next = cur.includes(id) ? cur : cur.concat([id]);
+  } else {
+    next = cur.filter((x) => x !== id);
+  }
+  return setNavModules(state, next);
+}
+
+/** 把某个模块在顺序里上移/下移一位 */
+export function moveNavModule(state, id, delta) {
+  const cur = navModules(state);
+  const i = cur.indexOf(id);
+  if (i === -1) return cur;
+  const j = i + (Number(delta) || 0);
+  if (j < 0 || j >= cur.length || i === j) return cur;
+  const next = cur.slice();
+  const [item] = next.splice(i, 1);
+  next.splice(j, 0, item);
+  return setNavModules(state, next);
 }
 
 export function isModuleId(id) {
@@ -70,6 +150,32 @@ export const NAV_ITEMS = [
 export const NAV_MODULE_IDS = NAV_ITEMS
   .map((n) => n.id)
   .filter((id) => MODULE_IDS.includes(id) && id !== 'general');
+
+/** 首页总览、今日计划、数据与设置：应用骨架，不允许隐藏 */
+export const NAV_FIXED_IDS = NAV_ITEMS
+  .map((n) => n.id)
+  .filter((id) => !NAV_MODULE_IDS.includes(id));
+
+/**
+ * 当前实际显示在左侧栏里的导航项。
+ *
+ * 顺序：首页总览 → 今日计划 → （可配置的业务模块，按用户排的顺序）→ 数据与设置。
+ *
+ * 被关掉的模块只是**不显示**，路由仍然存在——这样旧链接、快捷键、
+ * 以及任务上的模块标签跳转，都不会跳到不存在的地方。
+ */
+export function visibleNavItems(state) {
+  const ids = navModules(state);
+  const byId = {};
+  for (const item of NAV_ITEMS) byId[item.id] = item;
+
+  const out = [byId.home, byId.today];
+  for (const id of ids) {
+    if (byId[id]) out.push(byId[id]);
+  }
+  out.push(byId.settings);
+  return out.filter(Boolean);
+}
 
 /**
  * 已被移除的模块：从界面和数据里都清掉。
@@ -205,7 +311,13 @@ export function createInitialState() {
     bookNotes: [],
     fitness: { log: [], goals: [], notes: [] },
     diet: { meals: {}, recipes: [], shopping: [] },
-    settings: { density: 'comfortable', readingDailyGoal: 30, fitnessWeeklyGoal: 3 },
+    settings: {
+      density: 'comfortable',
+      readingDailyGoal: 30,
+      fitnessWeeklyGoal: 3,
+      // 左侧栏显示哪些模块、按什么顺序（至少保留学习）
+      navModules: NAV_MODULE_DEFAULT.slice(),
+    },
   };
 }
 
@@ -280,6 +392,8 @@ export function normalizeState(input) {
   // 每日阅读目标：1–480 分钟，非法值回落 30
   const goal = Number(out.settings.readingDailyGoal);
   out.settings.readingDailyGoal = Number.isFinite(goal) && goal >= 1 && goal <= 480 ? Math.round(goal) : 30;
+  // 左侧栏显示哪些模块、什么顺序（至少保留学习）
+  out.settings.navModules = sanitizeNavModules(out.settings.navModules);
   // 每周健身目标：1–21 次，非法值回落 3
   const fg = Number(out.settings.fitnessWeeklyGoal);
   out.settings.fitnessWeeklyGoal = Number.isFinite(fg) && fg >= 1 && fg <= 21 ? Math.round(fg) : 3;

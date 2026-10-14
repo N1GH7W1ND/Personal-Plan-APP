@@ -1006,6 +1006,184 @@ test('健身：健身任务能出现在今日计划与首页（与其他模块�
   }
 });
 
+test('设置里勾选左侧栏模块：立刻反映到侧栏与快速添加（R21）', async () => {
+  try {
+    await go('settings');
+    assertNoViewError();
+
+    // 五个可勾选模块都要有勾选框
+    for (const id of logic.NAV_MODULE_CHOICES) {
+      ok(view().querySelector('[data-nav-toggle="' + id + '"]'), '应有 ' + id + ' 的勾选框');
+    }
+    // 学习是必留的，应被禁用
+    const studyBox = view().querySelector('[data-nav-toggle="study"]');
+    ok(studyBox.disabled, '「学习」的勾选框应被禁用（至少要保留一项）');
+
+    const navRoutes = () => {
+      const navEl = dom.document.getElementById('nav');
+      return navEl.querySelectorAll('.nav-item').map((a) => a.getAttribute('data-route'));
+    };
+
+    // 默认：五个模块都在
+    deepEq(navRoutes(), ['home', 'today', 'dev', 'study', 'reading', 'diet', 'fitness', 'settings'],
+      '默认侧栏应有全部入口');
+
+    // 取消勾选"健身" → 侧栏立刻少一个
+    const fitBox = view().querySelector('[data-nav-toggle="fitness"]');
+    fitBox.checked = false;
+    fitBox.fire('change', {});
+    await waitRender();
+    assertNoViewError();
+    notOk(navRoutes().includes('fitness'), '取消勾选后侧栏不该再有健身');
+
+    // 回到首页看快速添加的下拉：也不该有健身
+    await go('home');
+    const sel = view().querySelector('[data-field="module"]');
+    notOk(sel.querySelectorAll('option').map((o) => o.getAttribute('value')).includes('fitness'),
+      '快速添加下拉里也不该有健身');
+
+    // 重新勾上 → 回来
+    await go('settings');
+    const fitBox2 = view().querySelector('[data-nav-toggle="fitness"]');
+    fitBox2.checked = true;
+    fitBox2.fire('change', {});
+    await waitRender();
+    ok(navRoutes().includes('fitness'), '重新勾选后侧栏应恢复');
+    await go('home');
+    ok(view().querySelector('[data-field="module"]')
+      .querySelectorAll('option').map((o) => o.getAttribute('value')).includes('fitness'),
+      '下拉里也应恢复');
+  } finally {
+    await resetAfterTest();
+  }
+});
+
+test('设置里调顺序：侧栏与快速添加下拉的顺序一起变（R21）', async () => {
+  try {
+    const navRoutes = () => {
+      const navEl = dom.document.getElementById('nav');
+      return navEl.querySelectorAll('.nav-item').map((a) => a.getAttribute('data-route'));
+    };
+    const options = () => view().querySelector('[data-field="module"]')
+      .querySelectorAll('option').map((o) => o.getAttribute('value'));
+
+    // 把"健身"从最后一位往上挪，挪到阅读前面
+    await go('settings');
+    for (let i = 0; i < 3; i++) {
+      findByActAndId(view(), 'nav-up', 'fitness').click();
+      await waitRender();
+    }
+    deepEq(navRoutes(), ['home', 'today', 'dev', 'fitness', 'study', 'reading', 'diet', 'settings'],
+      '侧栏顺序应跟着变');
+
+    // 快速添加的下拉顺序也应一致（去掉骨架项与设置）
+    await go('home');
+    deepEq(options(), ['dev', 'fitness', 'study', 'reading', 'diet'],
+      '快速添加下拉的顺序应与侧栏一致');
+
+    // 再下移一次，两边一起变
+    await go('settings');
+    findByActAndId(view(), 'nav-down', 'fitness').click();
+    await waitRender();
+    deepEq(navRoutes(), ['home', 'today', 'dev', 'study', 'fitness', 'reading', 'diet', 'settings'],
+      '下移后侧栏顺序');
+    await go('home');
+    deepEq(options(), ['dev', 'study', 'fitness', 'reading', 'diet'], '下拉顺序同步');
+
+    // 进第一个模块看「加一条」的默认选中项 = 下拉第一项
+    await go('today');
+    findByAct(view(), 'add-here')[0].click();
+    await waitRender();
+    eq(modal().querySelector('[data-field="module"]').value, 'dev',
+      '默认应选中下拉里的第一个模块');
+    eq(modal().querySelector('[data-field="module"]').querySelectorAll('option').length, 5,
+      '弹窗里的模块数应与配置一致');
+    findByAct(modal(), 'close')[0].click();
+    await waitRender();
+  } finally {
+    await resetAfterTest();
+  }
+});
+
+test('隐藏的模块仍然可以进：旧链接与任务标签不会跳丢（R21 回归）', async () => {
+  try {
+    // 只留阅读（学习会被自动补上）
+    store.dispatch((s) => logic.setNavModules(s, ['reading']));
+    await waitRender();
+    await go('home');
+
+    const navRoutes = () => dom.document.getElementById('nav')
+      .querySelectorAll('.nav-item').map((a) => a.getAttribute('data-route'));
+    notOk(navRoutes().includes('fitness'), '前置条件：健身已被隐藏');
+
+    // 直接进被隐藏的模块（相当于点旧书签或在地址栏输 #/fitness）
+    await go('fitness');
+    assertNoViewError();
+    ok(view().innerHTML.includes('健身'), '被隐藏的模块仍然要能正常打开');
+
+    // 任务上的模块标签跳到被隐藏的模块也要能到
+    store.dispatch((s) => logic.addTask(s, { title: '练一组', module: 'fitness', date: date.todayStr() }));
+    await waitRender();
+    await go('today');
+    const jumpTag = findByAct(view(), 'jump')[0];
+    ok(jumpTag, '任务上应有模块标签');
+    jumpTag.click();
+    await waitRender();
+    eq(router.currentRoute(), 'fitness', '点模块标签应跳到健身页，而不是掉回首页');
+  } finally {
+    await resetAfterTest();
+  }
+});
+
+test('设置里全关也只留学习：不允许把侧栏清空（R21）', async () => {
+  try {
+    await go('settings');
+    // 逐个取消勾选（学习被禁用，点不动）
+    for (const id of ['dev', 'reading', 'diet', 'fitness']) {
+      const box = view().querySelector('[data-nav-toggle="' + id + '"]');
+      box.checked = false;
+      box.fire('change', {});
+      await waitRender();
+    }
+    const navRoutes = () => dom.document.getElementById('nav')
+      .querySelectorAll('.nav-item').map((a) => a.getAttribute('data-route'));
+    deepEq(navRoutes(), ['home', 'today', 'study', 'settings'],
+      '全关之后只剩骨架 + 学习');
+
+    // 学习仍然可以被点开
+    await go('study');
+    assertNoViewError();
+    ok(view().innerHTML.length > 100, '学习页应正常渲染');
+
+    // 数据里也应保留学习
+    ok(logic.navModules(store.getState()).includes('study'), '配置里必须含学习');
+  } finally {
+    await resetAfterTest();
+  }
+});
+
+test('左侧栏配置会落盘，刷新后仍然生效', async () => {
+  try {
+    store.dispatch((s) => logic.setNavModules(s, ['fitness', 'reading']));
+    store.dispatch((s) => logic.moveNavModule(s, 'reading', -1));
+    await waitRender();
+    await store.flushNow();
+
+    // 模拟重新加载数据
+    await store.load();
+    await waitRender();
+    await go('home');
+    deepEq(logic.navModules(store.getState()), ['reading', 'fitness', 'study'],
+      '刷新后配置应还在');
+    const navRoutes = () => dom.document.getElementById('nav')
+      .querySelectorAll('.nav-item').map((a) => a.getAttribute('data-route'));
+    deepEq(navRoutes(), ['home', 'today', 'reading', 'fitness', 'study', 'settings'],
+      '侧栏应按存下来的配置渲染');
+  } finally {
+    await resetAfterTest();
+  }
+});
+
 test('左侧导航的文字与顺序（开发/饮食用简称）', async () => {
   await go('home');
   const navEl = dom.document.getElementById('nav');
