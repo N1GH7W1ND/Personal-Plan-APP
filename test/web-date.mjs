@@ -224,8 +224,73 @@ test('样式表：括号配对，且 var() 引用的变量都有定义', () => {
   }
 });
 
-test('样式表：颜色值格式合法，没有写坏的色值', () => {
+/*
+ * 可读性检查：深色主题最容易踩的坑是"文字和底一样深，看不清"。
+ * 这里直接算 WCAG 对比度，把"看得清"变成可断言的数字。
+ */
+test('样式表：深色主题下文字与背景的对比度足够（看得清）', () => {
   const css = readFileSync(join(ROOT, 'web', 'styles.css'), 'utf8');
+
+  const hexOf = (name) => {
+    const m = new RegExp('--' + name + ':\\s*(#[0-9a-fA-F]{6})').exec(css);
+    ok(m, '设计变量 --' + name + ' 应是 6 位十六进制色值');
+    return m[1];
+  };
+  const toRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const lum = (rgb) => {
+    const c = rgb.map((v) => {
+      const s = v / 255;
+      return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  };
+  const contrast = (a, b) => {
+    const l1 = lum(toRgb(a));
+    const l2 = lum(toRgb(b));
+    return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+  };
+  // 卡片是半透明叠在底色上，按 alpha 合成算出实际看到的颜色
+  const composite = (rgba, bgHex) => {
+    const m = /rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/.exec(rgba);
+    const bg = toRgb(bgHex);
+    const a = Number(m[4]);
+    const fg = [Number(m[1]), Number(m[2]), Number(m[3])];
+    return '#' + fg.map((v, i) => Math.round(v * a + bg[i] * (1 - a))
+      .toString(16).padStart(2, '0')).join('');
+  };
+
+  const bg = hexOf('bg');
+  const panelToken = /--panel:\s*(rgba\([^)]+\))/.exec(css);
+  ok(panelToken, '--panel 应是 rgba 半透明色（毛玻璃卡片）');
+  const panel = composite(panelToken[1], bg);
+
+  // 卡片上：正文/次要 ≥ 7，辅助 ≥ 4.5
+  ok(contrast(hexOf('text'), panel) >= 7,
+    '正文与卡片对比度应 ≥ 7:1（实际 ' + contrast(hexOf('text'), panel).toFixed(2) + '）');
+  ok(contrast(hexOf('text-2'), panel) >= 7,
+    '次要文字与卡片对比度应 ≥ 7:1（实际 ' + contrast(hexOf('text-2'), panel).toFixed(2) + '）');
+  ok(contrast(hexOf('text-3'), panel) >= 4.5,
+    '辅助文字与卡片对比度应 ≥ 4.5:1（实际 ' + contrast(hexOf('text-3'), panel).toFixed(2) + '）');
+
+  // 底色上同样要够清楚
+  ok(contrast(hexOf('text'), bg) >= 7, '正文与底色对比度应 ≥ 7:1');
+  ok(contrast(hexOf('text-2'), bg) >= 7, '次要文字与底色对比度应 ≥ 7:1');
+  ok(contrast(hexOf('text-3'), bg) >= 4.5, '辅助文字与底色对比度应 ≥ 4.5:1');
+
+  // 强调色（主色/警示/危险/成功/模块色）作为文字也要能看清
+  for (const name of ['primary', 'warn', 'danger', 'ok', 'm-dev', 'm-study', 'm-diet']) {
+    ok(contrast(hexOf(name), panel) >= 4.5,
+      '强调色 --' + name + ' 与卡片对比度应 ≥ 4.5:1（实际 '
+      + contrast(hexOf(name), panel).toFixed(2) + '）');
+  }
+
+  // 主按钮用亮底 + 深字，同样要过关
+  ok(contrast('#06101f', hexOf('primary')) >= 4.5,
+    '主按钮上的深色文字与主色对比度应 ≥ 4.5:1（实际 '
+    + contrast('#06101f', hexOf('primary')).toFixed(2) + '）');
+});
+
+test('样式表：颜色值格式合法，没有写坏的色值', () => {  const css = readFileSync(join(ROOT, 'web', 'styles.css'), 'utf8');
   // 去掉注释后再检查，避免注释里的示例被误判
   const code = css.replace(/\/\*[\s\S]*?\*\//g, '');
 
@@ -239,4 +304,38 @@ test('样式表：颜色值格式合法，没有写坏的色值', () => {
   notIncludes(code, 'var(--)', '出现了空的 var()');
   notIncludes(code, 'undefined', '样式里出现了 undefined');
   notIncludes(code, 'NaN', '样式里出现了 NaN');
+});
+
+/*
+ * 星空/月亮是先用 body::before / ::after 铺的一层固定装饰。
+ * 这一层一旦压住内容，整个界面就"看不见也点不动"了，
+ * 所以层级与指针穿透必须固定住。
+ */
+test('样式表：装饰层不会盖住内容，也不会拦住点击', () => {
+  const css = readFileSync(join(ROOT, 'web', 'styles.css'), 'utf8');
+  const code = css.replace(/\/\*[\s\S]*?\*\//g, '');
+
+  // 装饰层：不吃指针事件
+  const decoBlock = /body::before,\s*body::after\s*\{([^}]*)\}/.exec(code);
+  ok(decoBlock, '应有 body::before / body::after 装饰层');
+  includes(decoBlock[1], 'pointer-events: none', '装饰层必须 pointer-events:none，否则会挡住点击');
+  includes(decoBlock[1], 'position: fixed', '装饰层应固定铺满视口');
+
+  // 装饰层的层级
+  const decoZ = /body::before,\s*body::after\s*\{[^}]*z-index:\s*(\d+)/.exec(code);
+  ok(decoZ, '装饰层应显式声明 z-index');
+  const decoLevel = Number(decoZ[1]);
+
+  // 内容层（.app）的层级必须高于装饰层
+  const appBlock = /\.app\s*\{([^}]*)\}/.exec(code);
+  ok(appBlock, '应有 .app 规则');
+  const appZ = /z-index:\s*(\d+)/.exec(appBlock[1]);
+  ok(appZ, '.app 必须显式声明 z-index（否则固定装饰层会盖住整个界面）');
+  ok(Number(appZ[1]) > decoLevel,
+    '.app 的 z-index（' + appZ[1] + '）必须高于装饰层（' + decoLevel + '）');
+  includes(appBlock[1], 'position: relative', '.app 需要 position 才能让 z-index 生效');
+
+  // 月亮与星点都应该在装饰层里画
+  includes(code, 'body::before', '应有星点层');
+  includes(code, 'body::after', '应有月亮层');
 });
