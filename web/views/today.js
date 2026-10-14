@@ -75,7 +75,18 @@ export default {
       }),
     });
 
-    return main + overdueCard + calendarCard + stats;
+    /*
+     * 统计图表。
+     * 把"所选日期"当作锚点传进去（而不是永远按今天算），
+     * 这样翻到别的日期看任务时，图表的"本周 / 本月"是围绕那一天展开的。
+     */
+    const chartCard = ui.card({
+      title: isToday ? '任务统计' : date.fmtDateCn(day) + ' 所在范围的统计',
+      sub: '切时间范围看趋势；点柱子或扇形看具体内容',
+      body: ui.chartCard({ moduleId: 'all', state, today: day, logic }),
+    });
+
+    return main + chartCard + overdueCard + calendarCard + stats;
   },
 
   mounted(root, ctx) {

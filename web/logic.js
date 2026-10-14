@@ -51,9 +51,24 @@ export const NAV_ITEMS = [
   { id: 'dev', name: '开发工作', icon: '⌘' },
   { id: 'study', name: '学习', icon: '✎' },
   { id: 'reading', name: '阅读', icon: '❐' },
+  { id: 'notes', name: '读书笔记', icon: '✍' },
   { id: 'diet', name: '饮食计划', icon: '◍' },
   { id: 'settings', name: '数据与设置', icon: '⚙' },
 ];
+
+/**
+ * 导航入口里"本身就是任务归属模块"的那些。
+ *
+ * 不是所有导航入口都对应模块：首页、今日计划、读书笔记、数据与设置都不是
+ * （你不能把一条任务归到"读书笔记"这一类）。
+ * 这个集合由 NAV_ITEMS 与 MODULE_IDS 求交得到，是这个概念的唯一来源——
+ * 以后新增导航项也不会让"下拉与导航一致"的检查失准。
+ *
+ * 必须定义在 NAV_ITEMS **之后**：const 有暂时性死区，提前引用会在模块加载时直接抛错。
+ */
+export const NAV_MODULE_IDS = NAV_ITEMS
+  .map((n) => n.id)
+  .filter((id) => MODULE_IDS.includes(id) && id !== 'general');
 
 /**
  * 已被移除的模块：从界面和数据里都清掉。
@@ -96,6 +111,21 @@ let idSeq = 0;
 export function newId(prefix) {
   idSeq = (idSeq + 1) % 100000;
   return (prefix || 'x') + '_' + Date.now().toString(36) + idSeq.toString(36).padStart(3, '0');
+}
+
+/**
+ * 从 id 末尾取创建序号（newId 写进去的自增号）。
+ * 用来给"同一毫秒创建"的数据排序：时间戳相同再按序号，顺序才是稳定且符合直觉的。
+ */
+export function idSeqOf(id) {
+  const m = /([0-9a-z]{3})$/.exec(String(id || ''));
+  return m ? parseInt(m[1], 36) : 0;
+}
+
+/** 按创建时间倒序（新的在前）；同毫秒时按创建序号，保证顺序稳定可预测 */
+export function byNewestFirst(a, b) {
+  if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
+  return idSeqOf(b.id) - idSeqOf(a.id);
 }
 
 export function clone(v) {
@@ -864,19 +894,44 @@ export function setReadingDailyGoal(state, n) {
 
 /* ---- 书摘与笔记 ---- */
 
+/** 笔记类型 */
+export const NOTE_KINDS = {
+  quote: '摘抄',
+  note: '想法',
+  question: '疑问',
+  action: '待办',
+};
+export const NOTE_KIND_ORDER = ['quote', 'note', 'question', 'action'];
+
+/** 常见位置的类型（给人用的说法，不是书本结构） */
+export const NOTE_SPOTS = ['开头', '中间', '结尾', '附录', '注释'];
+
 export function addBookNote(state, input) {
   const src = input || {};
   const text = String(src.text == null ? '' : src.text).trim();
   if (!text) return null;
+  const num = (v) => {
+    const n = Math.round(Number(v) || 0);
+    return n > 0 ? n : 0;
+  };
   const note = {
     id: src.id || newId('bn'),
     bookId: src.bookId || '',
-    page: Math.max(0, Math.round(Number(src.page) || 0)),
+    kind: NOTE_KIND_ORDER.includes(src.kind) ? src.kind : 'note',
     text,
-    kind: src.kind === 'quote' ? 'quote' : 'note', // 摘抄 / 想法
+    // 位置：页码区间、行号区间、章节/位置名，都允许留空
+    page: num(src.page),
+    pageTo: num(src.pageTo),
+    line: num(src.line),
+    lineTo: num(src.lineTo),
+    chapter: src.chapter == null ? '' : String(src.chapter).trim(),
+    pinned: !!src.pinned,
     createdAt: src.createdAt || date.nowIso(),
     updatedAt: date.nowIso(),
   };
+  // 只填了"到第几页"时，把起始页补成同一个，避免出现空区间
+  if (note.pageTo && !note.page) note.page = note.pageTo;
+  if (note.lineTo && !note.line) note.line = note.lineTo;
   state.bookNotes.push(note);
   return note;
 }
@@ -889,13 +944,25 @@ export function updateBookNote(state, id, patch) {
   const note = findBookNote(state, id);
   if (!note) return null;
   const p = patch || {};
+  const num = (v) => {
+    const n = Math.round(Number(v) || 0);
+    return n > 0 ? n : 0;
+  };
+
   if (p.text != null) {
     const text = String(p.text).trim();
     if (text) note.text = text;
   }
-  if (p.page != null) note.page = Math.max(0, Math.round(Number(p.page) || 0));
-  if (p.kind != null) note.kind = p.kind === 'quote' ? 'quote' : 'note';
+  if (p.kind != null && NOTE_KIND_ORDER.includes(p.kind)) note.kind = p.kind;
   if (p.bookId != null) note.bookId = String(p.bookId);
+  if (p.page != null) note.page = num(p.page);
+  if (p.pageTo != null) note.pageTo = num(p.pageTo);
+  if (p.line != null) note.line = num(p.line);
+  if (p.lineTo != null) note.lineTo = num(p.lineTo);
+  if (p.chapter != null) note.chapter = String(p.chapter).trim();
+  if (p.pinned != null) note.pinned = !!p.pinned;
+  if (note.pageTo && !note.page) note.page = note.pageTo;
+  if (note.lineTo && !note.line) note.line = note.lineTo;
   note.updatedAt = date.nowIso();
   return note;
 }
@@ -907,11 +974,91 @@ export function removeBookNote(state, id) {
   return removed;
 }
 
-/** 某本书的笔记（按页码排序，没页码的排后面） */
+export function toggleNotePinned(state, id) {
+  const note = findBookNote(state, id);
+  if (!note) return null;
+  note.pinned = !note.pinned;
+  return note;
+}
+
+/**
+ * 笔记的位置描述成一句人话。
+ * 优先用"章节/位置"，其次页码区间，再其次行号区间，最后返回空串。
+ */
+export function noteLocation(note) {
+  if (!note) return '';
+  const parts = [];
+  if (note.chapter) parts.push(note.chapter);
+  if (note.page) {
+    parts.push(note.pageTo && note.pageTo !== note.page
+      ? '第 ' + note.page + '–' + note.pageTo + ' 页'
+      : '第 ' + note.page + ' 页');
+  }
+  if (note.line) {
+    parts.push(note.lineTo && note.lineTo !== note.line
+      ? '第 ' + note.line + '–' + note.lineTo + ' 行'
+      : '第 ' + note.line + ' 行');
+  }
+  return parts.join(' · ');
+}
+
+/** 某本书的笔记（收藏在前，然后按位置排，没位置的排后面） */
 export function notesOfBook(state, bookId) {
   return state.bookNotes
     .filter((n) => n.bookId === bookId)
-    .sort((a, b) => (a.page || 99999) - (b.page || 99999));
+    .sort((a, b) => {
+      if (!!b.pinned !== !!a.pinned) return b.pinned ? 1 : -1;
+      const pa = a.page || 99999;
+      const pb = b.page || 99999;
+      if (pa !== pb) return pa - pb;
+      return (a.line || 99999) - (b.line || 99999);
+    });
+}
+
+/**
+ * 搜索与筛选笔记。
+ * @param {object} filter {q, bookId, kind, pinnedOnly}
+ */
+export function filterBookNotes(state, filter) {
+  const f = filter || {};
+  const q = String(f.q == null ? '' : f.q).trim().toLowerCase();
+  let list = state.bookNotes.slice();
+
+  if (f.bookId) list = list.filter((n) => n.bookId === f.bookId);
+  if (f.kind) list = list.filter((n) => n.kind === f.kind);
+  if (f.pinnedOnly) list = list.filter((n) => n.pinned);
+  if (q) {
+    list = list.filter((n) => {
+      const book = n.bookId ? findBook(state, n.bookId) : null;
+      const hay = [
+        n.text, n.chapter, book ? book.title : '', book ? book.author : '',
+      ].join(' ').toLowerCase();
+      return hay.includes(q);
+    });
+  }
+
+  // 收藏在前，再按创建时间倒序（最近记的排前面）
+  // 同一毫秒创建的按创建序号兜底，避免顺序随机（曾出现"列表顺序不可预测"）
+  return list.sort((a, b) => {
+    if (!!b.pinned !== !!a.pinned) return b.pinned ? 1 : -1;
+    return byNewestFirst(a, b);
+  });
+}
+
+/** 笔记概况：总数、按类型计数、收藏数、关联了几本书 */
+export function bookNotesSummary(state) {
+  const notes = state.bookNotes;
+  const byKind = {};
+  for (const k of NOTE_KIND_ORDER) byKind[k] = 0;
+  for (const n of notes) byKind[n.kind] = (byKind[n.kind] || 0) + 1;
+  const books = new Set(notes.filter((n) => n.bookId).map((n) => n.bookId));
+  return {
+    total: notes.length,
+    byKind,
+    pinned: notes.filter((n) => n.pinned).length,
+    booksTouched: books.size,
+    withLocation: notes.filter((n) => noteLocation(n)).length,
+  };
 }
 
 /** 阅读概况统计 */
@@ -1298,7 +1445,9 @@ export function chartBuckets(state, moduleId, rangeKey, today) {
     return buckets;
   }
 
-  // 今年 / 全部：按月分桶
+  // 今年 / 全部：按月分桶。
+  // 刻意只列出"有数据的月份"：一整年十二个空柱子比空白还难看，
+  // 而且年度视角关心的是"哪几个月在干活"，不是逐月打卡。
   const map = {};
   for (const item of list) {
     const m = String(item.date).slice(0, 7); // YYYY-MM

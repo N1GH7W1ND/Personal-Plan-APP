@@ -650,19 +650,25 @@ function barChart(buckets, selectedKey, maxTotal) {
     return '<div class="chart-empty">这个时间段还没有数据</div>';
   }
   const max = Math.max(1, maxTotal || 1);
+  const emptyCount = buckets.filter((b) => !b.total).length;
 
   const bars = buckets.map((b) => {
     const h = Math.round((b.total / max) * 100);
     const dh = b.total ? Math.round((b.done / max) * 100) : 0;
     const cls = ['bar'];
     if (b.key === selectedKey) cls.push('selected');
-    if (b.total === 0) cls.push('empty');
+    if (!b.total) cls.push('empty');
+    // 有任务的日子显示"总数 / 已完成"两层柱
+    const bar = b.total
+      ? '<div class="bar-track">' +
+          '<div class="bar-total" style="height:' + h + '%"></div>' +
+          '<div class="bar-done" style="height:' + dh + '%"></div>' +
+        '</div>'
+      // 没任务的日子只画一个安静的小点，保留"这一天存在"的结构，但不制造噪音
+      : '<div class="bar-track"><span class="bar-empty-dot"></span></div>';
     return '<div class="' + cls.join(' ') + '" data-act="chart-bucket" data-key="' + escapeHtml(b.key) + '"' +
-      ' title="' + escapeHtml(b.sub + '：' + b.total + ' 条，完成 ' + b.done + ' 条') + '">' +
-      '<div class="bar-track">' +
-      '<div class="bar-total" style="height:' + h + '%"></div>' +
-      '<div class="bar-done" style="height:' + dh + '%"></div>' +
-      '</div>' +
+      ' title="' + escapeHtml(b.sub + '：' + (b.total ? b.total + ' 条，完成 ' + b.done + ' 条' : '没有任务')) + '">' +
+      bar +
       '<div class="bar-label">' + escapeHtml(b.label) + '</div>' +
       '</div>';
   }).join('');
@@ -671,6 +677,7 @@ function barChart(buckets, selectedKey, maxTotal) {
     '<div class="chart-legend">' +
     '<span class="lg"><i class="sw done"></i>已完成</span>' +
     '<span class="lg"><i class="sw total"></i>总数</span>' +
+    (emptyCount ? '<span class="lg"><i class="sw empty"></i>没有任务（' + emptyCount + ' 天）</span>' : '') +
     '</div>';
 }
 

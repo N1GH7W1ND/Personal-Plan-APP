@@ -11,7 +11,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
-import { installDom, findByAct, findByActAndId } from './lib/dom.mjs';
+import { installDom, findByAct, findByActAndId, noteCardText } from './lib/dom.mjs';
 
 const require = createRequire(import.meta.url);
 const ROOT = join(import.meta.dirname, '..');
@@ -62,6 +62,10 @@ setFile('阶段4 任务主干');
 
 const view = () => dom.document.getElementById('view');
 const modal = () => dom.document.getElementById('modalLayer');
+
+/** 读书笔记页用：按 id 取一张笔记卡，或取全部笔记卡 */
+const noteCardAll = (root) => (root || view()).querySelectorAll('.note-card');
+const noteCard = (root, id) => (root || view()).querySelector('#note-' + id);
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -283,9 +287,195 @@ test('阅读：推到今日会生成一条归属阅读的任务', async () => {
   await waitRender();
 });
 
-test('数字键 1–7 随时能切换页面；主动点进输入框时数字归用户（回归）', async () => {
+test('读书笔记页：记一条带完整位置的笔记，界面要如实显示（R13）', async () => {
+  await go('notes');
+  assertNoViewError();
+
+  ok(view().innerHTML.includes('读书笔记'), '页面标题应是读书笔记');
+  ok(view().innerHTML.includes('还没有笔记'), '空状态应有引导');
+
+  // 先有一本书，才能关联
+  store.dispatch((s) => logic.addBook(s, { title: '置身事内', author: '兰小欢', totalPages: 300 }));
+  await waitRender();
+  const book = store.getState().books[0];
+
+  findByAct(view(), 'note-new')[0].click();
+  await waitRender();
+  const m = modal();
+  ok(m, '应打开笔记编辑弹窗');
+  // 位置相关字段都要在
+  for (const f of ['text', 'kind', 'bookId', 'chapter', 'page', 'pageTo', 'line', 'lineTo', 'pinned']) {
+    ok(m.querySelector('[data-field="' + f + '"]'), '弹窗里应有字段 ' + f);
+  }
+
+  m.querySelector('[data-field="text"]').value = '地方政府的行为逻辑值得细读';
+  m.querySelector('[data-field="kind"]').value = 'quote';
+  m.querySelector('[data-field="bookId"]').value = book.id;
+  m.querySelector('[data-field="chapter"]').value = '第三章';
+  m.querySelector('[data-field="page"]').value = '42';
+  m.querySelector('[data-field="pageTo"]').value = '45';
+  m.querySelector('[data-field="line"]').value = '3';
+  m.querySelector('[data-field="lineTo"]').value = '8';
+  m.querySelector('[data-field="pinned"]').checked = true;
+  findByAct(m, 'save')[0].click();
+  await waitRender();
+  assertNoViewError();
+
+  const note = store.getState().bookNotes[0];
+  ok(note, '应新增一条笔记');
+  eq(note.page, 42);
+  eq(note.pageTo, 45);
+  eq(note.line, 3);
+  eq(note.lineTo, 8);
+  eq(note.chapter, '第三章');
+  eq(note.kind, 'quote');
+  eq(note.pinned, true);
+
+  // 界面上要能看到位置拼成的人话、书名、类型
+  const card = noteCard(view(), note.id);
+  ok(card, '列表里应有这张笔记卡');
+  const shown = noteCardText(card);
+  ok(shown.includes('第 42–45 页'), '界面应显示页码区间（实际：' + shown + '）');
+  ok(shown.includes('第 3–8 行'), '界面应显示行号区间（实际：' + shown + '）');
+  ok(shown.includes('第三章'), '界面应显示章节');
+  ok(shown.includes('置身事内'), '界面应显示书名');
+  ok(shown.includes('摘抄'), '界面应显示类型');
+  ok(card.className.includes('pinned'), '收藏的笔记应有置顶样式');
+});
+
+test('读书笔记页：搜索、按类型筛选、只看收藏、收藏置顶（R13.2–R13.4）', async () => {
+  await go('notes');
+  const book = store.getState().books[0];
+
+  // 再加两条，凑出可筛选的数据
+  store.dispatch((s) => logic.addBookNote(s, { text: '认知革命的关键', bookId: book.id, kind: 'note' }));
+  store.dispatch((s) => logic.addBookNote(s, { text: '这条没关联书', kind: 'question' }));
+  await waitRender();
+
+  const cards = () => noteCardAll(view()).length;
+  eq(cards(), 3, '应显示三条');
+
+  // 搜索：走真实输入事件
+  const q = view().querySelector('[data-field="note-q"]');
+  ok(q, '应有搜索框');
+  q.value = '认知';
+  q.fire('input', {});
+  await waitRender();
+  assertNoViewError();
+  eq(cards(), 1, '搜索后应只剩一条');
+  ok(noteCardText(noteCardAll(view())[0]).includes('认知革命'), '搜到的应是那一条');
+
+  // 清空搜索（按 Esc）
+  q.fire('keydown', { key: 'Escape' });
+  await waitRender();
+  eq(cards(), 3, '清空搜索后应恢复');
+
+  // 按类型筛选
+  findByAct(view(), 'note-filter-kind').find((b) => b.getAttribute('data-kind') === 'question').click();
+  await waitRender();
+  eq(cards(), 1, '只看"疑问"应只剩一条');
+  ok(noteCardText(noteCardAll(view())[0]).includes('没关联书'));
+
+  // 回到全部
+  findByAct(view(), 'note-filter-kind').find((b) => b.getAttribute('data-kind') === '').click();
+  await waitRender();
+  eq(cards(), 3);
+
+  // 只看收藏：目前只有第一条是收藏
+  findByAct(view(), 'note-filter-pinned')[0].click();
+  await waitRender();
+  eq(cards(), 1, '只看收藏应只剩收藏的那条');
+
+  // 取消收藏筛选
+  findByAct(view(), 'note-filter-pinned')[0].click();
+  await waitRender();
+  eq(cards(), 3);
+
+  // 收藏一条未收藏的，它应排到最前
+  const second = store.getState().bookNotes.find((n) => n.text === '认知革命的关键');
+  findByActAndId(view(), 'note-pin', second.id).click();
+  await waitRender();
+  eq(noteCardAll(view())[0].getAttribute('id'), 'note-' + second.id, '新收藏的应置顶');
+
+  // 搜索无结果时给出区别于"还没有笔记"的提示
+  const q2 = view().querySelector('[data-field="note-q"]');
+  q2.value = '绝对搜不到的词';
+  q2.fire('input', {});
+  await waitRender();
+  ok(view().innerHTML.includes('没有符合条件的笔记'), '搜不到时应说明是筛选结果为空');
+
+  await store.clearAll();
+  await waitRender();
+});
+
+test('图表：没任务的日子画成安静的小点，不再用斑马纹空柱（R15）', async () => {
+  await go('home');
+  await store.clearAll();
+  await waitRender();
+  await go('home');
+
+  const bars = view().querySelectorAll('.bar');
+  ok(bars.length >= 7, '本周应有 7 根柱子（实际 ' + bars.length + '）');
+  const emptyBars = bars.filter((b) => b.className.includes('empty'));
+  eq(emptyBars.length, bars.length, '没有任何任务时，本周每一根都应是空档');
+  ok(view().innerHTML.includes('bar-empty-dot'), '空档应画成小点而不是空柱子');
+  notOk(view().innerHTML.includes('repeating-linear-gradient'),
+    '不该再用斑马纹（那是空柱子的旧写法）');
+  ok(view().innerHTML.includes('没有任务'), '图例里应说明空档含义');
+
+  // 加一条任务后：有任务的那天有柱子，其它天仍是小点
+  store.dispatch((s) => logic.addTask(s, { title: '今天的事', module: 'dev', date: date.todayStr() }));
+  await waitRender();
+  const filled = view().querySelectorAll('.bar').filter((b) => !b.className.includes('empty'));
+  eq(filled.length, 1, '只有今天应该有柱子');
+  ok(view().innerHTML.includes('bar-empty-dot'), '其余日子仍应是小点');
+
+  await store.clearAll();
+  await waitRender();
+});
+
+test('今日计划页有统计图表，且跟着所选日期走（R16）', async () => {
+  const today = date.todayStr();
+
+  try {
+    // 先造一条任务，让扇形图有真实扇区（空数据时只画骨架，无法据此判断范围）
+    store.dispatch((s) => logic.addTask(s, { title: '今天的事', module: 'dev', date: today }));
+    await go('today');
+    assertNoViewError();
+
+    ok(view().innerHTML.includes('bar-chart'), '今日计划页应有柱形图');
+    ok(view().innerHTML.includes('pie-slice'), '今日计划页应有扇形图（有数据时应是真扇区）');
+
+    // 柱形图的日期标签应覆盖所选那一天
+    const labels = view().querySelectorAll('.bar-label').map((el) => el.textContent);
+    ok(labels.length >= 7, '本周应有 7 个日期标签（实际 ' + labels.length + '）');
+
+    // 翻到前一天，图表标题应跟着变（说明不是永远按今天算，而是围绕所选日期）
+    findByAct(view(), 'prev-day')[0].click();
+    await waitRender();
+    const prev = date.addDays(today, -1);
+    ok(view().innerHTML.includes(date.fmtDateCn(prev)),
+      '标题里应出现所选日期 ' + prev + '，说明图表跟着所选日期走');
+    ok(view().innerHTML.includes('bar-chart'), '翻日期后图表仍在');
+
+    // 回到今天
+    findByAct(view(), 'goto-today')[0].click();
+    await waitRender();
+    ok(view().innerHTML.includes('任务统计'), '回到今天后标题应恢复为"任务统计"');
+
+    // 图表的时间范围切换仍然可用（按钮名是 chart-range）
+    ok(findByAct(view(), 'chart-range').length >= 3, '应有时间范围切换按钮（本周/本月/今年/全部）');
+  } finally {
+    // 无论断言是否失败都要清干净，否则后面的用例会看到多余任务
+    await store.clearAll();
+    await go('home');
+    await waitRender();
+  }
+});
+
+test('数字键 1–8 随时能切换页面；主动点进输入框时数字归用户（回归）', async () => {
   const navIds = logic.NAV_ITEMS.map((n) => n.id);
-  eq(navIds.length, 7, '当前应是 7 个导航入口');
+  eq(navIds.length, 8, '当前应是 8 个导航入口');
 
   // ---- 一：没有在输入时，数字键应当切换页面 ----
   for (let i = 0; i < navIds.length; i++) {
@@ -384,9 +574,7 @@ test('首页内联快速补一条：选模块 + 回车 → 任务进入该模块
 
 test('首页与弹窗的模块下拉只含导航里的模块，且与导航一致（需求 4）', async () => {
   // 导航里的业务模块
-  const navIds = logic.NAV_ITEMS
-    .map((n) => n.id)
-    .filter((id) => id !== 'home' && id !== 'today' && id !== 'settings');
+  const navIds = logic.NAV_MODULE_IDS;
 
   // 首页内联下拉
   const sel = view().querySelector('[data-field="module"]');

@@ -63,7 +63,7 @@ test('date.js 内部不使用 UTC 截取的方式取日期', () => {
 test('前端各模块源码里没有用 toISOString().slice(0,10) 取日期', () => {
   const files = ['app.js', 'store.js', 'logic.js', 'router.js', 'ui.js', 'api.js',
     'views/home.js', 'views/today.js', 'views/dev.js', 'views/study.js',
-    'views/reading.js', 'views/diet.js', 'views/settings.js'];
+    'views/reading.js', 'views/notes.js', 'views/diet.js', 'views/settings.js'];
   for (const f of files) {
     const abs = join(ROOT, 'web', f);
     // 这些文件都是必须存在的：缺文件应当直接报出来，而不是被静默跳过
@@ -193,6 +193,52 @@ test('monthDay 生成正确的日期串', () => {
   eq(date.monthDay(2026, 10, 8), '2026-10-08');
   eq(date.monthDay(2026, 1, 1), '2026-01-01');
   eq(date.monthDay(2026, 12, 31), '2026-12-31');
+});
+
+/*
+ * 下拉选项的可读性。
+ * 起因：深色主题下 <select> 的弹出面板由系统绘制，默认是白底；
+ * 而选项文字继承了界面的浅色，于是"白底浅字"几乎看不清也点不准。
+ */
+test('样式表：深色界面的下拉选项有明确配色，不会白底浅字（R14）', () => {
+  const css = readFileSync(join(ROOT, 'web', 'styles.css'), 'utf8');
+  const code = css.replace(/\/\*[\s\S]*?\*\//g, '');
+
+  // :root 必须声明深色配色方案，原生控件（下拉面板/日期选择器/滚动条）才会跟着深色
+  const rootBlock = /:root\s*\{([\s\S]*?)\}/.exec(code);
+  ok(rootBlock, '应有 :root 块');
+  includes(rootBlock[1], 'color-scheme: dark',
+    ':root 应声明 color-scheme: dark，否则原生下拉面板会是系统白底');
+
+  // 选项本身也要有底色与文字色，不能只靠 select 本体
+  const optionBlock = /\.select\s+option\s*\{([^}]*)\}/.exec(code);
+  ok(optionBlock, '应有 .select option 规则（否则选项会沿用系统默认配色）');
+  includes(optionBlock[1], 'background', '下拉选项应有显式底色');
+  includes(optionBlock[1], 'color', '下拉选项应有显式文字色');
+
+  // select 本体也要显式给出文字色与底色，避免继承出问题
+  const selectBlock = /\.select\s*\{([^}]*)\}/.exec(code);
+  ok(selectBlock, '应有 .select 规则');
+  includes(selectBlock[1], 'color:', '.select 本体应显式指定文字色');
+  includes(selectBlock[1], 'background', '.select 本体应显式指定底色');
+});
+
+test('样式表：图表空档不再用斑马纹空柱（R15）', () => {
+  const css = readFileSync(join(ROOT, 'web', 'styles.css'), 'utf8');
+  const code = css.replace(/\/\*[\s\S]*?\*\//g, '');
+
+  // 旧的空柱写法是给空档铺浅色重复斜纹，深色主题下非常刺眼
+  notIncludes(code, 'repeating-linear-gradient(45deg, #f7f9fc',
+    '不该再用浅色斑马纹做空柱（那是浅色主题的残留）');
+
+  /*
+   * 注意用选择器 + 左花括号来断言，而不是裸类名：
+   * 裸类名会被 ".bar-empty-dot-DISABLED" 这类改名后的写法误判为"还在"，
+   * 那样的检查等于没有（这条曾经就是因此抓不到问题）。
+   */
+  ok(/\.bar-empty-dot\s*\{/.test(code), '应有一条 .bar-empty-dot 的小点样式规则');
+  ok(/\.bar\.empty\s+\.bar-track\s*\{/.test(code),
+    '空档的柱子容器仍应有独立样式（保留日期结构，而不是整根不画）');
 });
 
 /* ---------------- 样式表健康检查 ---------------- */

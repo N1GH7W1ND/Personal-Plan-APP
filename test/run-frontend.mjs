@@ -168,9 +168,32 @@ async function main() {
   }
 
   process.exitCode = failures.length === 0 ? 0 : 1;
+  finish();
 }
 
-main().catch((err) => {
+/**
+ * 兜底退出。
+ * 只设 process.exitCode 是不够的：万一还有服务句柄或定时器活着，
+ * 事件循环就不会空，进程会一直挂着（曾经因此让整轮测试假死 3 分钟）。
+ * 正常路径给一点时间让输出刷完即可；出错路径要主动收尾再退。
+ */
+function finish({ hard } = {}) {
+  const code = process.exitCode || 0;
+  setTimeout(() => {
+    if (hard) process.exit(code);
+    // 正常情况下先让事件循环自己空掉，空不掉再强制退出
+    setTimeout(() => process.exit(code), 1500);
+  }, 50);
+}
+
+main().catch(async (err) => {
   console.error('前端测试运行器出错：', err);
   process.exitCode = 1;
+  // 出错时把已经起来的服务关掉，否则端口会一直被占着
+  for (const fn of teardowns) {
+    try {
+      await fn();
+    } catch { /* 出错路径下收尾失败不必再报 */ }
+  }
+  finish({ hard: true });
 });

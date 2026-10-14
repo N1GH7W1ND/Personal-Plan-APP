@@ -12,6 +12,7 @@
 import * as date from '../date.js';
 import * as logic from '../logic.js';
 import * as ui from '../ui.js';
+import { openNoteEditor, resetNoteFilter } from './notes.js';
 
 /** 当前日历月份下，本模块每天的标记 */
 function monthMarks(state, moduleId, today) {
@@ -148,19 +149,22 @@ export default {
       body: ui.chartCard({ moduleId: 'reading', state, today, logic }),
     });
 
-    /* ---- 5. 读书笔记 ---- */
-    const notes = state.bookNotes.slice().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-    const noteRows = notes.length
-      ? notes.map((n) => {
+    /* ---- 5. 读书笔记（只放最近的几条，完整的在笔记页） ---- */
+    const noteSummary = logic.bookNotesSummary(state);
+    const recent = logic.filterBookNotes(state, {}).slice(0, 4);
+    const noteRows = recent.length
+      ? recent.map((n) => {
         const book = n.bookId ? logic.findBook(state, n.bookId) : null;
+        const loc = logic.noteLocation(n);
         return '<div class="book-note" id="bnote-' + ui.escapeHtml(n.id) + '">' +
           '<div class="bn-head">' +
-            '<span class="tag ' + (n.kind === 'quote' ? 'bn-quote' : '') + '">' +
-              (n.kind === 'quote' ? '摘抄' : '想法') + '</span>' +
+            '<span class="tag nc-' + ui.escapeHtml(n.kind) + '">' +
+              ui.escapeHtml(logic.NOTE_KINDS[n.kind] || '想法') + '</span>' +
             (book ? '<span class="bn-book" data-act="book-jump" data-id="' + ui.escapeHtml(book.id) + '">《' +
               ui.escapeHtml(book.title) + '》</span>' : '<span class="muted">未关联书</span>') +
-            (n.page ? '<span class="muted">第 ' + n.page + ' 页</span>' : '') +
+            (loc ? '<span class="nc-loc">' + ui.escapeHtml(loc) + '</span>' : '') +
             '<span class="spacer"></span>' +
+            (n.pinned ? '<span class="nc-pin">★</span>' : '') +
             ui.iconBtn('✎', { act: 'bnote-edit', id: n.id }, '编辑') +
             ui.iconBtn('✕', { act: 'bnote-del', id: n.id }, '删除') +
           '</div>' +
@@ -171,12 +175,20 @@ export default {
 
     const notesCard = ui.card({
       title: '读书笔记',
-      sub: stats.notes + ' 条（摘抄 ' + stats.quotes + '）',
-      actions: ui.btn('+ 记一条', { act: 'bnote-new' }, 'btn-sm'),
+      sub: noteSummary.total + ' 条（摘抄 ' + (noteSummary.byKind.quote || 0) + ' · 收藏 ' + noteSummary.pinned + '）',
+      actions:
+        ui.btn('查看全部', { act: 'goto-notes' }, 'btn-sm') +
+        '<span style="width:6px"></span>' +
+        ui.btn('+ 记一条', { act: 'bnote-new' }, 'btn-sm'),
       tight: true,
       body: '<div class="note-add">' +
         '<input class="input" type="text" data-field="bnote-input" placeholder="随手记一句想法，回车即存">' +
-        '</div><div style="height:10px"></div>' + noteRows,
+        '</div>' +
+        (noteSummary.total > recent.length
+          ? '<div class="muted small" style="padding:6px 2px">只显示最近 ' + recent.length + ' 条，'
+            + '其余在「读书笔记」页</div>'
+          : '<div style="height:8px"></div>') +
+        noteRows,
     });
 
     return overview + booksCard + calendarCard + chartCard + notesCard +
@@ -260,7 +272,14 @@ export default {
 
     if (type === 'bnote-new' || type === 'bnote-edit') {
       const note = type === 'bnote-edit' ? logic.findBookNote(state, id) : null;
-      openNoteDialog(store, helpers, note, state);
+      // 与「读书笔记」页共用同一个编辑弹窗，避免两处实现走样
+      openNoteEditor(store, helpers, note, state);
+      return;
+    }
+
+    if (type === 'goto-notes') {
+      resetNoteFilter();
+      ctx.go('notes');
       return;
     }
 
@@ -432,53 +451,6 @@ function openLogDialog(store, helpers, today, bookId, book) {
         ui.toast(done >= goal
           ? '今天读了 ' + done + ' 分钟，已达标 ✓'
           : '今天读了 ' + done + ' 分钟（目标 ' + goal + '）', { type: 'ok', duration: 2400 });
-        helpers.rerender();
-      };
-    },
-  });
-}
-
-/** 加/改一条读书笔记 */
-function openNoteDialog(store, helpers, note, state) {
-  const isNew = !note;
-  const cur = note || { text: '', bookId: '', page: 0, kind: 'note' };
-  const options = [{ value: '', label: '（不关联书）' }]
-    .concat(state.books.map((b) => ({ value: b.id, label: b.title })));
-
-  ui.openModal({
-    title: isNew ? '记一条读书笔记' : '编辑笔记',
-    body:
-      '<div class="field"><label class="field-label">内容</label>' +
-      ui.textarea('text', cur.text, '摘抄原文，或写下自己的想法…', 4) + '</div>' +
-      '<div class="field-row">' +
-      '<div class="field"><label class="field-label">类型</label>' +
-      ui.select('kind', cur.kind, [{ value: 'note', label: '想法' }, { value: 'quote', label: '摘抄' }]) + '</div>' +
-      '<div class="field"><label class="field-label">页码（可选）</label>' +
-      '<input class="input" type="number" min="0" data-field="page" value="' + (cur.page || 0) + '"></div>' +
-      '</div>' +
-      '<div class="field"><label class="field-label">来自哪本书</label>' +
-      ui.select('bookId', cur.bookId || '', options) + '</div>',
-    foot: '<button type="button" class="btn" data-act="close">取消</button>' +
-      '<button type="button" class="btn btn-primary" data-act="save">保存</button>',
-    onMount(root) {
-      ui.qs(root, '[data-act="save"]').onclick = () => {
-        const text = ui.qs(root, '[data-field="text"]').value.trim();
-        if (!text) {
-          ui.toast('内容不能为空', { type: 'warn' });
-          return;
-        }
-        const payload = {
-          text,
-          kind: ui.qs(root, '[data-field="kind"]').value,
-          page: Number(ui.qs(root, '[data-field="page"]').value) || 0,
-          bookId: ui.qs(root, '[data-field="bookId"]').value,
-        };
-        ui.closeModal();
-        if (isNew) {
-          store.dispatch((s) => logic.addBookNote(s, payload), { label: '新增读书笔记' });
-        } else {
-          store.dispatch((s) => logic.updateBookNote(s, note.id, payload), { label: '编辑读书笔记' });
-        }
         helpers.rerender();
       };
     },

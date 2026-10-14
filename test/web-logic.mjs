@@ -27,19 +27,28 @@ test('模块清单完整且含"通用"兜底', () => {
   eq(logic.moduleName('unknown-module'), '通用', '未知模块应回落到通用');
 });
 
-test('快速添加的模块列表与左侧导航一致（需求 4）', () => {
+test('快速添加的模块列表与左侧导航里的业务模块一致（需求 4）', () => {
   const selectable = logic.quickAddModules();
   const ids = selectable.map((m) => m.id);
 
-  // 导航里的"业务模块"（排除首页/今日计划/设置这三个非任务模块）
-  const navModuleIds = logic.NAV_ITEMS
-    .map((n) => n.id)
-    .filter((id) => id !== 'home' && id !== 'today' && id !== 'settings');
+  // 导航里的"业务模块"：直接取 logic 导出的那份事实，不在测试里靠排除硬编码
+  const navModuleIds = logic.NAV_MODULE_IDS;
 
   deepEq(ids, navModuleIds, '快速添加可选模块应与导航里的业务模块完全一致');
 
   // 不应出现"通用"这种导航里没有的选项
   notOk(ids.includes('general'), '下拉里不应出现"通用"（它不是导航入口）');
+
+  // 非任务模块的导航入口不该混进来
+  for (const id of ['home', 'today', 'notes', 'settings']) {
+    notOk(ids.includes(id), '下拉里不该出现 ' + id + '（它不是任务归属模块）');
+  }
+
+  // 这个集合必须真的由"导航 ∩ 模块"得出，而不是手写的
+  const expected = logic.NAV_ITEMS
+    .map((n) => n.id)
+    .filter((id) => logic.MODULE_IDS.includes(id) && id !== 'general');
+  deepEq(navModuleIds, expected, 'NAV_MODULE_IDS 应由导航与模块求交得出');
 
   // 名称也应与导航一致
   for (const m of selectable) {
@@ -66,9 +75,9 @@ test('已移除的模块不再出现在模块清单与导航里', () => {
   eq(logic.moduleName('fitness'), '通用', '旧数据里的 fitness 应回落到通用');
 });
 
-test('导航是 7 个入口且顺序固定', () => {
+test('导航是 8 个入口且顺序固定', () => {
   deepEq(logic.NAV_ITEMS.map((n) => n.id), [
-    'home', 'today', 'dev', 'study', 'reading', 'diet', 'settings',
+    'home', 'today', 'dev', 'study', 'reading', 'notes', 'diet', 'settings',
   ]);
   for (const item of logic.NAV_ITEMS) {
     ok(item.name && item.icon, item.id + ' 应有名称与图标');
@@ -791,6 +800,223 @@ test('阅读：新建时就填了已读页数，状态也要立刻正确（回�
   // 显式指定的状态优先于推导（例如手动标为搁置）
   const paused = logic.addBook(s, { title: '搁置的', totalPages: 100, currentPage: 30, status: 'paused' });
   eq(paused.status, 'paused', '手动指定的状态应被尊重');
+});
+
+test('笔记位置：章节 + 页码区间 + 行号区间，能拼成一句人话（R13.5–R13.7）', () => {
+  const s = fresh();
+
+  // 三个位置都填，且都是区间
+  const full = logic.addBookNote(s, {
+    text: '全都有',
+    chapter: '第三章',
+    page: 42, pageTo: 45,
+    line: 3, lineTo: 8,
+  });
+  eq(full.page, 42);
+  eq(full.pageTo, 45);
+  eq(full.line, 3);
+  eq(full.lineTo, 8);
+  eq(logic.noteLocation(full), '第三章 · 第 42–45 页 · 第 3–8 行');
+
+  // 只有一页/一行时不写成区间
+  const single = logic.addBookNote(s, { text: '单页', page: 7, line: 2 });
+  eq(logic.noteLocation(single), '第 7 页 · 第 2 行');
+
+  // 只填章节
+  const onlyChapter = logic.addBookNote(s, { text: '只章节', chapter: '附录二' });
+  eq(logic.noteLocation(onlyChapter), '附录二');
+
+  // 什么都不填就是空串
+  const nothing = logic.addBookNote(s, { text: '没位置' });
+  eq(logic.noteLocation(nothing), '', '没填位置时应是空串');
+
+  eq(logic.noteLocation(null), '', '空笔记不该报错');
+});
+
+test('笔记位置：只填"到第几页"时自动补起始页，不出现半截区间（R13.6）', () => {
+  const s = fresh();
+
+  const a = logic.addBookNote(s, { text: '只填了到第几页', pageTo: 45 });
+  eq(a.page, 45, '起始页应自动补成同一个值');
+  eq(a.pageTo, 45);
+  eq(logic.noteLocation(a), '第 45 页', '不该显示成 "第 页–45 页"');
+
+  const b = logic.addBookNote(s, { text: '只填了到第几行', lineTo: 12 });
+  eq(b.line, 12);
+  eq(logic.noteLocation(b), '第 12 行');
+
+  // 编辑时同理
+  const c = logic.addBookNote(s, { text: '编辑', page: 0, pageTo: 0 });
+  logic.updateBookNote(s, c.id, { pageTo: 30 });
+  eq(c.page, 30, '编辑时也应补上起始页');
+
+  // 负数与非法值不会写进去
+  const d = logic.addBookNote(s, { text: '非法', page: -5, pageTo: 'abc', line: -1 });
+  eq(d.page, 0);
+  eq(d.pageTo, 0);
+  eq(d.line, 0);
+});
+
+test('笔记：四种类型，非法类型回落"想法"（R13.3）', () => {
+  const s = fresh();
+  deepEq(logic.NOTE_KIND_ORDER, ['quote', 'note', 'question', 'action']);
+
+  for (const k of logic.NOTE_KIND_ORDER) {
+    const n = logic.addBookNote(s, { text: k, kind: k });
+    eq(n.kind, k, '应保留类型 ' + k);
+  }
+  const bad = logic.addBookNote(s, { text: '乱写', kind: '不存在的类型' });
+  eq(bad.kind, 'note', '非法类型应回落到想法');
+
+  // 每种类型的中文名都在
+  for (const k of logic.NOTE_KIND_ORDER) {
+    ok(logic.NOTE_KINDS[k], '类型 ' + k + ' 应有中文名');
+  }
+});
+
+test('笔记：搜索内容/章节/书名，按书与类型筛选，只看收藏（R13.2–R13.4）', () => {
+  const s = fresh();
+  const bookA = logic.addBook(s, { title: '置身事内', author: '兰小欢' });
+  const bookB = logic.addBook(s, { title: '人类简史', author: '赫拉利' });
+
+  logic.addBookNote(s, { text: '地方政府的行为逻辑', bookId: bookA.id, kind: 'quote', chapter: '第三章' });
+  logic.addBookNote(s, { text: '认知革命的关键', bookId: bookB.id, kind: 'note', pinned: true });
+  logic.addBookNote(s, { text: '这条没关联书', kind: 'question' });
+
+  eq(logic.bookNotesSummary(s).total, 3);
+
+  // 搜正文
+  eq(logic.filterBookNotes(s, { q: '认知' }).length, 1);
+  // 搜章节
+  eq(logic.filterBookNotes(s, { q: '第三章' }).length, 1);
+  // 搜书名
+  eq(logic.filterBookNotes(s, { q: '人类简史' }).length, 1, '应能按书名搜到');
+  // 搜作者
+  eq(logic.filterBookNotes(s, { q: '兰小欢' }).length, 1, '应能按作者搜到');
+  // 大小写不敏感 + 没有结果
+  eq(logic.filterBookNotes(s, { q: '不存在的词' }).length, 0);
+
+  // 按书筛
+  eq(logic.filterBookNotes(s, { bookId: bookA.id }).length, 1);
+  eq(logic.filterBookNotes(s, { bookId: bookB.id }).length, 1);
+
+  // 按类型筛
+  eq(logic.filterBookNotes(s, { kind: 'quote' }).length, 1);
+  eq(logic.filterBookNotes(s, { kind: 'question' }).length, 1);
+
+  // 只看收藏
+  const pinned = logic.filterBookNotes(s, { pinnedOnly: true });
+  eq(pinned.length, 1);
+  eq(pinned[0].text, '认知革命的关键');
+
+  // 组合筛选
+  eq(logic.filterBookNotes(s, { bookId: bookA.id, kind: 'quote' }).length, 1);
+  eq(logic.filterBookNotes(s, { bookId: bookA.id, kind: 'note' }).length, 0);
+  eq(logic.filterBookNotes(s, { q: '认知', bookId: bookA.id }).length, 0, '条件之间应是"且"');
+});
+
+test('笔记：收藏会置顶显示（R13.4）', () => {
+  const s = fresh();
+  const a = logic.addBookNote(s, { text: '先记的' });
+  const b = logic.addBookNote(s, { text: '后记的' });
+
+  // 都不是收藏时，最近记的在最前。
+  // 两条往往是同一毫秒创建的，所以这里同时验证"同毫秒也稳定"——
+  // 只比时间戳会在同毫秒时给出随机顺序，顺序必须可预测。
+  eq(a.createdAt, b.createdAt, '前置条件：这两条确实是同一毫秒创建的');
+  deepEq(logic.filterBookNotes(s, {}).map((n) => n.text), ['后记的', '先记的'],
+    '同一毫秒创建时，后记的也应在最前（按创建序号兜底）');
+
+  // 把先记的设为收藏，它应排到最前
+  logic.toggleNotePinned(s, a.id);
+  ok(a.pinned, '应被收藏');
+  deepEq(logic.filterBookNotes(s, {}).map((n) => n.text), ['先记的', '后记的'],
+    '收藏的应置顶');
+
+  // 两条都收藏时，回到按时间倒序
+  logic.toggleNotePinned(s, b.id);
+  deepEq(logic.filterBookNotes(s, {}).map((n) => n.text), ['后记的', '先记的'],
+    '都收藏时按创建时间倒序');
+
+  // 再点一次取消
+  logic.toggleNotePinned(s, a.id);
+  logic.toggleNotePinned(s, b.id);
+  notOk(a.pinned, '再点应取消收藏');
+  notOk(b.pinned);
+  deepEq(logic.filterBookNotes(s, {}).map((n) => n.text), ['后记的', '先记的']);
+
+  eq(logic.toggleNotePinned(s, '不存在'), null);
+  eq(logic.bookNotesSummary(s).pinned, 0);
+});
+
+test('id 序号：同毫秒创建的也能排出稳定顺序', () => {
+  const s = fresh();
+  const ids = [];
+  for (let i = 0; i < 5; i++) ids.push(logic.newId('t'));
+  eq(new Set(ids).size, 5, '同一毫秒生成的 id 不应重复');
+
+  // 序号应递增，因此"后创建的 id 序号更大"
+  const seqs = ids.map((id) => logic.idSeqOf(id));
+  for (let i = 1; i < seqs.length; i++) {
+    ok(seqs[i] > seqs[i - 1], '序号应递增：' + seqs[i - 1] + ' -> ' + seqs[i]);
+  }
+
+  eq(logic.idSeqOf(''), 0, '取不到序号时返回 0，不该抛错');
+  eq(logic.idSeqOf(null), 0);
+
+  // byNewestFirst：时间相同时序号大的在前
+  const older = { id: 'x_1a001', createdAt: '2026-01-01T00:00:00+08:00' };
+  const newer = { id: 'x_1a002', createdAt: '2026-01-01T00:00:00+08:00' };
+  eq([older, newer].sort(logic.byNewestFirst)[0], newer, '同毫秒时序号大的排前面');
+});
+
+test('笔记概况：总数、按类型计数、收藏数、关联书数（R13 概况）', () => {
+  const s = fresh();
+  const b1 = logic.addBook(s, { title: 'A' });
+  const b2 = logic.addBook(s, { title: 'B' });
+
+  logic.addBookNote(s, { text: '1', bookId: b1.id, kind: 'quote', pinned: true, page: 10 });
+  logic.addBookNote(s, { text: '2', bookId: b1.id, kind: 'quote' });
+  logic.addBookNote(s, { text: '3', bookId: b2.id, kind: 'action' });
+  logic.addBookNote(s, { text: '4', kind: 'note' }); // 没关联书、没位置
+
+  const sum = logic.bookNotesSummary(s);
+  eq(sum.total, 4);
+  eq(sum.byKind.quote, 2);
+  eq(sum.byKind.action, 1);
+  eq(sum.byKind.note, 1);
+  eq(sum.byKind.question, 0, '没有的类型应计 0，而不是 undefined');
+  eq(sum.pinned, 1);
+  eq(sum.booksTouched, 2, '关联了两本书');
+  eq(sum.withLocation, 1, '只有第一条有位置');
+});
+
+test('某本书的笔记：收藏在前，再按页码、行号排序（notesOfBook）', () => {
+  const s = fresh();
+  const book = logic.addBook(s, { title: 'A' });
+
+  logic.addBookNote(s, { text: '第 50 页', bookId: book.id, page: 50 });
+  logic.addBookNote(s, { text: '第 10 页', bookId: book.id, page: 10 });
+  logic.addBookNote(s, { text: '没页码', bookId: book.id });
+  logic.addBookNote(s, { text: '收藏但第 99 页', bookId: book.id, page: 99, pinned: true });
+  logic.addBookNote(s, { text: '别的书的', bookId: logic.addBook(s, { title: 'B' }).id, page: 1 });
+
+  deepEq(logic.notesOfBook(s, book.id).map((n) => n.text),
+    ['收藏但第 99 页', '第 10 页', '第 50 页', '没页码'],
+    '收藏在最前，其余按页码，没页码的排最后');
+  eq(logic.notesOfBook(s, '不存在的书').length, 0);
+});
+
+test('笔记：未关联书的笔记不会被删书误伤（R11.11 补充）', () => {
+  const s = fresh();
+  const book = logic.addBook(s, { title: 'A' });
+  logic.addBookNote(s, { text: '关联 A', bookId: book.id });
+  logic.addBookNote(s, { text: '没关联' });
+  logic.addBookNote(s, { text: '关联空串', bookId: '' });
+
+  logic.removeBook(s, book.id);
+  eq(s.bookNotes.length, 2, '只应删掉真正关联 A 的那条');
+  ok(s.bookNotes.every((n) => n.text !== '关联 A'));
 });
 
 /* ---------------- 日历聚合 ---------------- */

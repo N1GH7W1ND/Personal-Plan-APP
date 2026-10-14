@@ -52,8 +52,8 @@ t.test('交付件齐全：启动脚本、说明、停止脚本、需求与计划
   }
 });
 
-t.test('前端 7 个视图文件齐全，且已移除模块的视图不存在', async () => {
-  for (const v of ['home', 'today', 'dev', 'study', 'reading', 'diet', 'settings']) {
+t.test('前端 8 个视图文件齐全，且已移除模块的视图不存在', async () => {
+  for (const v of ['home', 'today', 'dev', 'study', 'reading', 'notes', 'diet', 'settings']) {
     t.ok(exists('web/views/' + v + '.js'), '缺少视图 web/views/' + v + '.js');
   }
   // 已移除模块的视图不该还在磁盘上
@@ -104,7 +104,7 @@ t.test('没有任何外网请求或外链资源', async () => {
 
 t.test('代码里没有把未实现功能伪装成已实现（无 TODO 占位冒烟）', async () => {
   const files = ['web/views/home.js', 'web/views/today.js', 'web/views/dev.js', 'web/views/study.js',
-    'web/views/reading.js', 'web/views/diet.js', 'web/views/settings.js'];
+    'web/views/reading.js', 'web/views/notes.js', 'web/views/diet.js', 'web/views/settings.js'];
   for (const f of files) {
     const text = read(f);
     t.notIncludes(text, '正在开发中', f + ' 仍是占位实现');
@@ -344,7 +344,7 @@ t.test('PRD 第 10 节的验收标准条目齐全（原 49 条 + 范围调整后
     t.notIncludes(prd, '| ~~' + id + '~~ |', '仍然有效的验收项 ' + id + ' 不应被标为作废');
   }
 
-  // 范围调整后新增的验收标准（R1–R12）应齐全
+  // 范围调整后新增的验收标准（R1–R16）应齐全
   t.includes(prd, '### 10.7 范围调整后新增的验收标准', 'PRD 应有新增验收标准章节');
   for (const id of ['R1.1', 'R1.2', 'R1.3', 'R1.4',
     'R4.1', 'R4.2', 'R4.3', 'R4.4',
@@ -354,25 +354,41 @@ t.test('PRD 第 10 节的验收标准条目齐全（原 49 条 + 范围调整后
     'R8.1', 'R8.2', 'R8.3', 'R8.4',
     'R11.1', 'R11.2', 'R11.3', 'R11.4', 'R11.5', 'R11.6', 'R11.7',
     'R11.8', 'R11.9', 'R11.10', 'R11.11', 'R11.12', 'R11.13',
-    'R12.1', 'R12.2', 'R12.3', 'R12.4']) {
+    'R12.1', 'R12.2', 'R12.3', 'R12.4',
+    'R13.1', 'R13.2', 'R13.3', 'R13.4', 'R13.5', 'R13.6', 'R13.7', 'R13.8', 'R13.9',
+    'R14.1', 'R14.2',
+    'R15.1', 'R15.2', 'R15.3',
+    'R16.1', 'R16.2']) {
     t.includes(prd, '| ' + id + ' |', 'PRD 应含新增验收项 ' + id);
   }
 
   // 导航入口数与模块数应与代码一致（文档不能与实现脱节）
-  t.includes(prd, '**7 个**导航入口', 'PRD 应写明当前是 7 个导航入口');
-  t.includes(prd, '任务可归属 5 个', 'PRD 应写明任务可归属 5 个模块');
-
-  // 这两处数字必须与代码里的实际清单一致，不能只改文案
   const navCount = (read('web/index.html').match(/data-route="/g) || []).length;
-  t.eq(navCount, 7, 'index.html 里的导航入口数应为 7（实际 ' + navCount + '）');
-  t.includes(prd, '**' + navCount + ' 个**导航入口', 'PRD 写的入口数应与 index.html 一致');
+  t.eq(navCount, 8, 'index.html 里的导航入口数应为 8（实际 ' + navCount + '）');
 
-  const logicSrc = read('web/logic.js');
-  const moduleBlock = /export const MODULES = \[([\s\S]*?)\];/.exec(logicSrc);
-  t.ok(moduleBlock, '应能找到 MODULES 定义');
-  const moduleCount = (moduleBlock[1].match(/id: '/g) || []).length;
-  t.eq(moduleCount, 5, 'MODULES 应有 5 个（含兜底的通用），实际 ' + moduleCount);
-  t.includes(prd, '任务可归属 ' + moduleCount + ' 个', 'PRD 写的模块数应与代码一致');
+  /*
+   * 光比数量还不够：出现过"文档只写数量、清单却与代码不一致"的脱节。
+   * 这里直接 import 真实模块读清单（比解析源码可靠），再逐项与 PRD 比对。
+   */
+  const { NAV_ITEMS, MODULES } = await import('../web/logic.js');
+  const navNames = NAV_ITEMS.map((n) => n.name);
+  t.eq(navNames.length, navCount, 'logic.js 的导航数应与 index.html 的入口数一致（'
+    + navNames.length + ' vs ' + navCount + '）');
+
+  const navLine = (prd.match(/\*\*调整后的导航（(\d+) 个入口）\*\*：\n([^\n]+)/) || []);
+  t.ok(navLine[0], 'PRD 应有一行"调整后的导航（N 个入口）"清单');
+  t.eq(Number(navLine[1]), navCount, 'PRD 写的入口数应与实际一致（' + navLine[1] + ' vs ' + navCount + '）');
+
+  const prdNavNames = navLine[2].split('·').map((s) => s.trim());
+  t.eq(prdNavNames.length, navNames.length,
+    'PRD 导航清单的项数应与代码一致（' + prdNavNames.length + ' vs ' + navNames.length + '）');
+  for (const name of navNames) {
+    t.ok(prdNavNames.includes(name), 'PRD 的导航清单里应有「' + name + '」（现有：' + prdNavNames.join('/') + '）');
+  }
+
+  // 模块数同理
+  t.eq(MODULES.length, 5, 'MODULES 应有 5 个（含兜底的通用），实际 ' + MODULES.length);
+  t.includes(prd, '任务可归属 ' + MODULES.length + ' 个', 'PRD 写的模块数应与代码一致');
 });
 
 t.test('文档与源码里没有控制字符，反引号也不该落单', async () => {

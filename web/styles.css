@@ -5,6 +5,10 @@
    ============================================================ */
 
 :root {
+  /* 声明整站是深色界面：浏览器的原生控件（下拉面板、日期选择器、滚动条、自动填充）
+     会据此使用深色绘制，避免出现"系统白底 + 浅色文字"看不清的情况。 */
+  color-scheme: dark;
+
   /* 底色：深蓝夜空。--bg 是最深处，--bg-2 用于内层与悬停 */
   --bg: #070b18;
   --bg-2: #141d33;
@@ -718,11 +722,14 @@ a { color: var(--primary); text-decoration: none; }
   width: 100%;
   outline: none;
   transition: border-color .14s, box-shadow .14s, background .14s;
+  /* 告诉浏览器这是深色界面：原生控件（下拉面板、日期选择器、滚动条）会跟着用深色，
+     否则弹出层是系统白底，而文字继承了浅色，会出现"白底浅字看不见"。 */
+  color-scheme: dark;
 }
 
 .input::placeholder, .textarea::placeholder { color: var(--text-3); }
 
-.input:hover, .select:hover, .textarea:hover { border-color: #b9c2d4; }
+.input:hover, .select:hover, .textarea:hover { border-color: var(--line-strong); }
 
 .input:focus, .select:focus, .textarea:focus {
   border-color: var(--primary);
@@ -730,6 +737,44 @@ a { color: var(--primary); text-decoration: none; }
 }
 
 .textarea { resize: vertical; min-height: 70px; font-family: inherit; }
+
+/*
+ * 下拉框：除了给 select 本体配色，还要给 option 配色。
+ * 原生下拉面板由系统绘制，不显式指定就会用白底，配合深色主题的浅色文字就读不清。
+ */
+.select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--text-2) 50%),
+    linear-gradient(135deg, var(--text-2) 50%, transparent 50%);
+  background-position:
+    calc(100% - 15px) calc(50% + 1px),
+    calc(100% - 10px) calc(50% + 1px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 28px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.select option {
+  background: #16213a;
+  color: #eef2fb;
+  padding: 6px 8px;
+}
+
+.select option:checked,
+.select option:hover {
+  background: #2b3d63;
+  color: #ffffff;
+}
+
+/* 分组标题（optgroup）也一并对齐 */
+.select optgroup {
+  background: #101a2e;
+  color: var(--text-3);
+}
 
 .inline-input {
   border: 1px dashed var(--line-strong);
@@ -1075,11 +1120,33 @@ a { color: var(--primary); text-decoration: none; }
 .bar:hover .bar-total { background: #c7d4fb; }
 .bar.selected .bar-total { box-shadow: 0 0 0 2px var(--primary) inset; }
 .bar.selected .bar-label { color: var(--primary); font-weight: 700; }
-.bar.empty { cursor: default; }
+
+/*
+ * 没任务的日子：不画柱子，只留一个安静的小点。
+ * 这样"本周七天"的结构还在（能一眼看出哪天空着），又不会满屏斑马纹。
+ */
+.bar.empty { cursor: pointer; }
 .bar.empty .bar-track {
-  background: repeating-linear-gradient(45deg, #f7f9fc, #f7f9fc 6px, #eef2f8 6px, #eef2f8 12px);
-  border-radius: 5px;
+  align-items: center;
+  justify-content: center;
 }
+
+.bar-empty-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .18);
+  transition: background .16s, transform .16s;
+}
+
+.bar.empty:hover .bar-empty-dot {
+  background: var(--primary);
+  transform: scale(1.5);
+}
+
+.bar.empty .bar-label { color: var(--text-3); opacity: .55; }
+.bar.empty.selected .bar-label { color: var(--primary); opacity: 1; }
+.bar.empty.selected .bar-empty-dot { background: var(--primary); transform: scale(1.5); }
 
 .bar-label {
   font-size: 10.5px;
@@ -1150,7 +1217,8 @@ a { color: var(--primary); text-decoration: none; }
 }
 
 .sw.done { background: var(--m-dev); }
-.sw.total { background: #dde5f5; }
+.sw.total { background: var(--primary-weak-2); }
+.sw.empty { background: rgba(255, 255, 255, .18); }
 
 .chart-empty {
   font-size: 12.5px;
@@ -1312,6 +1380,7 @@ a { color: var(--primary); text-decoration: none; }
 .tag.st-paused   { background: rgba(255, 207, 92, .16); color: var(--warn); }
 
 /* 读书笔记 */
+
 .book-note {
   border: 1px solid var(--line-2);
   border-left: 2px solid var(--m-reading);
@@ -1345,6 +1414,155 @@ a { color: var(--primary); text-decoration: none; }
 }
 
 .tag.bn-quote { background: rgba(179, 155, 255, .16); color: var(--m-study); }
+
+/* ---------------- 读书笔记页 ---------------- */
+
+/* 四类笔记的配色 */
+.tag.nc-quote    { background: rgba(179, 155, 255, .18); color: var(--m-study); }
+.tag.nc-note     { background: rgba(95, 208, 200, .18); color: var(--m-reading); }
+.tag.nc-question { background: rgba(255, 207, 92, .18); color: var(--warn); }
+.tag.nc-action   { background: rgba(124, 176, 255, .18); color: var(--m-dev); }
+
+.note-hint {
+  margin-top: 12px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  line-height: 1.7;
+}
+
+/* 搜索与筛选 */
+.note-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.note-toolbar .input { flex: 1 1 220px; min-width: 160px; }
+.note-toolbar .select { flex: 0 0 160px; width: 160px; }
+
+/* 一条笔记 */
+.note-card {
+  border: 1px solid var(--line-2);
+  border-left: 2px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, .035);
+  padding: 11px 13px;
+  margin-bottom: 9px;
+  transition: background .16s, border-color .16s, transform .16s;
+}
+
+.note-card:hover {
+  background: rgba(255, 255, 255, .07);
+  border-color: rgba(95, 208, 200, .28);
+  transform: translateX(2px);
+}
+
+.note-card.flash { animation: flash 1.6s ease-out; }
+
+/* 收藏的笔记：左侧亮条 + 淡金底，一眼能挑出来 */
+.note-card.pinned {
+  border-left-color: var(--warn);
+  background: rgba(255, 207, 92, .07);
+}
+.note-card.pinned:hover { background: rgba(255, 207, 92, .12); }
+
+/* 按类型给左侧细条着色，列表里能快速区分 */
+.note-card[data-kind="quote"]    { border-left-color: var(--m-study); }
+.note-card[data-kind="note"]     { border-left-color: var(--m-reading); }
+.note-card[data-kind="question"] { border-left-color: var(--warn); }
+.note-card[data-kind="action"]   { border-left-color: var(--m-dev); }
+.note-card.pinned { border-left-color: var(--warn); }
+
+.nc-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+  font-size: var(--fs-xs);
+  flex-wrap: wrap;
+}
+
+.nc-book { color: var(--m-reading); cursor: pointer; font-weight: 500; }
+.nc-book:hover { text-decoration: underline; }
+
+.nc-loc {
+  color: var(--text-3);
+  background: rgba(255, 255, 255, .06);
+  border-radius: var(--radius-pill);
+  padding: 1px 8px;
+}
+
+.nc-pin { color: var(--warn); font-size: 13px; }
+
+.nc-text {
+  font-size: var(--fs-md);
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.65;
+}
+
+.nc-foot {
+  margin-top: 7px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  opacity: .75;
+}
+
+/* 笔记编辑器里的"位置"分组 */
+.note-loc-box {
+  margin-top: 4px;
+  padding: 12px 13px 4px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, .025);
+}
+
+.note-loc-title {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+/* 常用位置小按钮 */
+.chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 7px;
+}
+
+.chip {
+  border: 1px solid var(--line-strong);
+  background: rgba(255, 255, 255, .05);
+  color: var(--text-2);
+  border-radius: var(--radius-pill);
+  padding: 3px 11px;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition: background .14s, color .14s, border-color .14s, transform .12s;
+}
+
+.chip:hover {
+  background: var(--primary-weak-2);
+  border-color: var(--primary);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.check-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-md);
+  color: var(--text-2);
+  margin: 6px 0 12px;
+  cursor: pointer;
+}
+
+.check-line input { accent-color: var(--primary); width: 15px; height: 15px; }
 
 /* ---------------- 弹窗 / 提示 ---------------- */
 

@@ -17,6 +17,7 @@ import todayView from './views/today.js';
 import devView from './views/dev.js';
 import studyView from './views/study.js';
 import readingView from './views/reading.js';
+import notesView from './views/notes.js';
 import dietView from './views/diet.js';
 import settingsView from './views/settings.js';
 
@@ -26,6 +27,7 @@ const VIEWS = {
   dev: devView,
   study: studyView,
   reading: readingView,
+  notes: notesView,
   diet: dietView,
   settings: settingsView,
 };
@@ -61,6 +63,19 @@ const ctx = {
   /** 打开快速添加弹窗 */
   quickAdd(prefill) {
     openQuickAdd(prefill);
+  },
+
+  /**
+   * 重绘，并把焦点还回指定输入框。
+   * 供"边打边筛"的搜索框使用（重绘会替换 DOM，不还原就没法连续输入）。
+   */
+  rerenderKeepingFocus(field) {
+    rerenderKeepingFocus(field);
+  },
+
+  /** 请求一次重绘（视图内部筛选用，不涉及数据改动） */
+  rerender() {
+    rerender();
   },
 
   /** 跳到某个模块（可带定位目标） */
@@ -281,6 +296,26 @@ export function rerender() {
 }
 
 /**
+ * 重绘后把焦点与光标还给指定的输入框。
+ * 搜索框这类"边打边筛"的输入，重绘会替换 DOM，不还原就没法连续输入。
+ */
+export function rerenderKeepingFocus(field) {
+  rerender();
+  requestAnimationFrame(() => {
+    if (!el.view || !field) return;
+    const input = el.view.querySelector('[data-field="' + field + '"]');
+    if (!input) return;
+    input.focus();
+    // 光标移到末尾，继续打字不会被顶到开头
+    if (typeof input.setSelectionRange === 'function' && typeof input.value === 'string') {
+      try {
+        input.setSelectionRange(input.value.length, input.value.length);
+      } catch { /* 某些 input 类型不支持，忽略即可 */ }
+    }
+  });
+}
+
+/**
  * 等下一次重绘完成（测试用；界面代码不需要）。
  * 若当前没有排队的重绘，会主动排一次。
  */
@@ -321,7 +356,7 @@ function renderNow() {
 
   if (view.mounted) {
     try {
-      view.mounted(el.view, ctx);
+      view.mounted(el.view, ctx, { rerender, rerenderKeepingFocus });
     } catch (err) {
       console.error('[视图挂载出错]', route, err);
     }

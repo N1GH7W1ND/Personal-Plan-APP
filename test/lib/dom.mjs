@@ -489,4 +489,16 @@ export function findByActAndId(root, act, id) {
   return querySelectorAll(root, '[data-act="' + act + '"][data-id="' + id + '"]')[0] || null;
 }
 
+/** 便捷：按 data-field 找表单控件 */
+export function findByField(root, field) {
+  return querySelectorAll(root, '[data-field="' + field + '"]')[0] || null;
+}
+
+/** 便捷：取一个笔记卡片上的"基本信息 + 正文"文本（用于断言界面显示了什么） */
+export function noteCardText(card) {
+  const info = querySelectorAll(card, '.nc-head')[0];
+  const text = querySelectorAll(card, '.nc-text')[0];
+  return (info ? info.textContent : '') + ' ' + (text ? text.textContent : '');
+}
+
 export { Element };
