@@ -43,3 +43,11 @@ _fail-dump.json
 _probe*.txt
 _repro*.txt
 _mod-diag.txt
+
+# 本机的推送辅助件：不进版本库
+#   推送.cmd 里写死了开发者机器上 gh.exe 的完整路径，对别人没用；
+#   push-log.txt 是每次推送前生成的临时日志。
+# 它们只方便本人在这台电脑上推送，不属于项目内容。
+推送.cmd
+prepush-check.cjs
+push-log.txt
