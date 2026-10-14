@@ -179,7 +179,7 @@ export default {
      */
     const openEditor = (item) => {
       const isNew = !item;
-      const cur = item || { title: '', status: 'todo', priority: logic.PRIORITY_DEFAULT, note: '' };
+      const cur = item || { title: '', status: 'todo', priority: logic.TASK_DEFAULT_PRIORITY, note: '' };
       ui.openModal({
         title: isNew ? '新增开发待办' : '编辑开发待办',
         body:

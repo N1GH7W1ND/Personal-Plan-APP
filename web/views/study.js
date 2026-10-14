@@ -130,7 +130,11 @@ export default {
 
     const openEditor = (item) => {
       const isNew = !item;
-      const cur = item || { title: '', kind: 'read', status: 'todo', minutes: 0, source: '', note: '' };
+      // 新增时默认优先级 = 重要且紧急（与任务的新增默认一致）
+      const cur = item || {
+        title: '', kind: 'read', status: 'todo', minutes: 0, source: '', note: '',
+        priority: logic.TASK_DEFAULT_PRIORITY,
+      };
       ui.openModal({
         title: isNew ? '新增学习内容' : '编辑学习内容',
         body:

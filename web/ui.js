@@ -4,7 +4,7 @@
  */
 
 import * as date from './date.js';
-import { moduleName, normalizePriority, priorityLabel, priorityTone, PRIORITY_DEFAULT, priorityOptions } from './logic.js';
+import { moduleName, normalizePriority, priorityLabel, priorityTone, PRIORITY_DEFAULT, TASK_DEFAULT_PRIORITY, priorityOptions } from './logic.js';
 
 /* ---------------- 基础 ---------------- */
 
@@ -895,7 +895,7 @@ export function taskEditor(task, opts) {
     '<input class="input" type="date" data-field="date" value="' + escapeHtml(task.date) + '"></div>' +
     '</div>' +
     '<div class="field"><label class="field-label">优先级</label>' +
-    select('priority', task.priority, priorityOptions()) + '</div>' +
+    select('priority', task.priority || TASK_DEFAULT_PRIORITY, priorityOptions()) + '</div>' +
     '<div class="field"><label class="field-label">备注</label>' +
     textarea('note', task.note, '可选，例如上下文、链接、注意事项', 2) + '</div>';
 

@@ -459,7 +459,7 @@ function openQuickAdd(prefill) {
     '<input class="input" type="date" data-field="date" value="' + ui.escapeHtml(pre.date || today) + '"></div>' +
     '</div>' +
     '<div class="field"><label class="field-label">优先级</label>' +
-    ui.select('priority', logic.normalizePriority(pre.priority), logic.priorityOptions()) + '</div>';
+    ui.select('priority', logic.normalizePriority(pre.priority || logic.TASK_DEFAULT_PRIORITY), logic.priorityOptions()) + '</div>';
 
   ui.openModal({
     title: '快速添加任务',

@@ -223,8 +223,23 @@ export const PRIORITY = {
 /** 从高到低的顺序（排序、下拉选项都用它，避免各处顺序不一致） */
 export const PRIORITY_ORDER = ['urgentImportant', 'important', 'urgent', 'normal'];
 
-/** 默认档位：不重要不紧急 */
+/**
+ * 兜底档位：不重要不紧急。
+ * 用途是"值写坏了回落到这里"——**不是**新增任务时的默认档。
+ * 两者刻意分开：否则数据里出现非法值时会被提升成最高优先级。
+ */
 export const PRIORITY_DEFAULT = 'normal';
+
+/**
+ * 新增任务时的默认优先级：重要且紧急（按本人要求）。
+ * 只用于"用户没选"的情况，不影响任何已有数据。
+ */
+export const TASK_DEFAULT_PRIORITY = 'urgentImportant';
+
+/** 新增时的默认优先级（供各视图的新建弹窗使用） */
+export function defaultTaskPriority() {
+  return TASK_DEFAULT_PRIORITY;
+}
 
 /**
  * 把任意来源的优先级规整成四档之一。
@@ -434,7 +449,7 @@ export function makeTask(input) {
     module: MODULE_IDS.includes(src.module) ? src.module : 'general',
     date: date.isValidDateStr(src.date) ? src.date : date.todayStr(),
     done: !!src.done,
-    priority: normalizePriority(src.priority),
+    priority: src.priority == null ? TASK_DEFAULT_PRIORITY : normalizePriority(src.priority),
     note: src.note == null ? '' : String(src.note),
     createdAt: src.createdAt || nowIso,
     updatedAt: nowIso,
@@ -648,7 +663,7 @@ export function addDevTask(state, input) {
     id: src.id || newId('d'),
     title,
     status: DEV_ORDER.includes(src.status) ? src.status : 'todo',
-    priority: normalizePriority(src.priority),
+    priority: src.priority == null ? TASK_DEFAULT_PRIORITY : normalizePriority(src.priority),
     note: src.note == null ? '' : String(src.note),
     createdAt: src.createdAt || date.nowIso(),
     updatedAt: date.nowIso(),
@@ -784,7 +799,7 @@ export function addStudyItem(state, input) {
     minutes: Math.max(0, Number(src.minutes) || 0),
     source: src.source == null ? '' : String(src.source),
     note: src.note == null ? '' : String(src.note),
-    priority: normalizePriority(src.priority),
+    priority: src.priority == null ? TASK_DEFAULT_PRIORITY : normalizePriority(src.priority),
     createdAt: src.createdAt || date.nowIso(),
     updatedAt: date.nowIso(),
   };

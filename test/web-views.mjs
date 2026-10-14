@@ -590,6 +590,9 @@ test('优先级四档出现在所有加任务的地方（顶栏 + 各板块 + �
     await waitRender();
     deepEq(readOptions(modal()), want, '快速添加的四档名称与顺序');
     deepEq(readValues(modal()), wantValues, '快速添加的四档取值');
+    // 按本人要求：新增任务的默认优先级是「重要且紧急」
+    eq(modal().querySelector('[data-field="priority"]').value, 'urgentImportant',
+      '快速添加的默认优先级应是"重要且紧急"');
     findByAct(modal(), 'close')[0].click();
     await waitRender();
 
@@ -604,6 +607,8 @@ test('优先级四档出现在所有加任务的地方（顶栏 + 各板块 + �
       ok(modal().querySelector('[data-field="priority"]'),
         label + '页新增弹窗里应有优先级下拉');
       deepEq(readOptions(modal()), want, label + '页新增弹窗的四档名称与顺序');
+      eq(modal().querySelector('[data-field="priority"]').value, 'urgentImportant',
+        label + '页新增的默认优先级也应是"重要且紧急"');
       const closeBtn = findByAct(modal(), 'close')[0];
       ok(closeBtn, label + '页弹窗应有取消按钮');
       closeBtn.click();

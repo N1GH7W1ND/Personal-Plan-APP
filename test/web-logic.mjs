@@ -182,7 +182,8 @@ test('新增任务会补全字段并默认今天', () => {
   eq(t.module, 'general', '未指定模块时归通用');
   eq(t.date, date.todayStr(), '未指定日期时排今天');
   eq(t.done, false);
-  eq(t.priority, 'normal');
+  // 新增任务的默认优先级是「重要且紧急」（按本人要求）
+  eq(t.priority, 'urgentImportant', '新增时没选优先级应默认"重要且紧急"');
   ok(t.id && t.createdAt && t.updatedAt, '应有 id 与时间戳');
   eq(s.tasks.length, 1);
 });
@@ -264,16 +265,33 @@ test('顺延只挪没做完的', () => {
 
 /* ---------------- 查询与统计 ---------------- */
 
-test('tasksOn 排序：未完成在前、重要在前', () => {
+test('tasksOn 排序：未完成在前，再按优先级四档', () => {
   const s = fresh();
   const d = '2026-10-08';
   logic.addTask(s, { title: '已完成', date: d, done: true });
-  logic.addTask(s, { title: '普通', date: d });
-  logic.addTask(s, { title: '重要', date: d, priority: 'high' });
+  /*
+   * 注意：新增任务的默认档现在是「重要且紧急」，
+   * 所以"想要最低档"必须显式指定，不能靠不填。
+   */
+  logic.addTask(s, { title: '最低档', date: d, priority: 'normal' });
+  logic.addTask(s, { title: '旧的普通', date: d, priority: 'high' });
   logic.addTask(s, { title: '别的日子', date: '2026-10-09' });
 
   const list = logic.tasksOn(s, d);
-  deepEq(list.map((t) => t.title), ['重要', '普通', '已完成']);
+  deepEq(list.map((t) => t.title), ['旧的普通', '最低档', '已完成'],
+    '未完成在前；旧的"重要"迁移成"重要不紧急"，仍排在最低档之前');
+});
+
+test('tasksOn 排序：新增的默认档（重要且紧急）排在最前', () => {
+  const s = fresh();
+  const d = '2026-10-08';
+  logic.addTask(s, { title: '不填（默认档）', date: d });
+  logic.addTask(s, { title: '显式最低', date: d, priority: 'normal' });
+  logic.addTask(s, { title: '重要不紧急', date: d, priority: 'important' });
+
+  deepEq(logic.tasksOn(s, d).map((t) => t.title),
+    ['不填（默认档）', '重要不紧急', '显式最低'],
+    '默认档就是"重要且紧急"，应排在最前');
 });
 
 test('overdueTasks 只认未完成且日期早于今天', () => {
@@ -1093,7 +1111,11 @@ test('优先级：四档齐全，旧的两档数据能平滑迁移', () => {
 test('优先级：新增与修改都只接受四档', () => {
   const s = fresh();
 
-  eq(logic.addTask(s, { title: 'A' }).priority, 'normal', '不填时默认最低档');
+  eq(logic.addTask(s, { title: 'A' }).priority, logic.TASK_DEFAULT_PRIORITY,
+    '不填时用新增默认档（重要且紧急）');
+  // 但要能显式选最低档
+  eq(logic.addTask(s, { title: 'Z', priority: 'normal' }).priority, 'normal',
+    '显式选"不重要不紧急"要生效');
   for (const k of logic.PRIORITY_ORDER) {
     eq(logic.addTask(s, { title: k, priority: k }).priority, k, '应保留 ' + k);
   }
@@ -1135,7 +1157,10 @@ test('优先级：开发待办与学习条目也都用四档', () => {
   eq(st.priority, 'important', '学习条目应能带优先级');
   logic.updateStudyItem(s, st.id, { priority: 'urgentImportant' });
   eq(st.priority, 'urgentImportant');
-  eq(logic.addStudyItem(s, { title: '没填' }).priority, 'normal', '不填时默认最低档');
+  eq(logic.addStudyItem(s, { title: '没填' }).priority, logic.TASK_DEFAULT_PRIORITY,
+    '学习条目不填时也用新增默认档');
+  eq(logic.addStudyItem(s, { title: '显式最低', priority: 'normal' }).priority, 'normal',
+    '显式选最低档要生效');
   eq(logic.addStudyItem(s, { title: '旧的', priority: 'high' }).priority, 'important',
     '学习条目的旧档位也要迁移');
   eq(logic.addStudyItem(s, { title: '乱写', priority: '第五档' }).priority, 'normal');
