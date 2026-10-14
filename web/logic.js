@@ -16,10 +16,10 @@ export const APP_TITLE = '我的工作台';
 
 /** 任务可归属的模块（名称与左侧导航保持一致） */
 export const MODULES = [
-  { id: 'dev', name: '开发工作', short: '开发' },
+  { id: 'dev', name: '开发', short: '开发' },
   { id: 'study', name: '学习', short: '学习' },
   { id: 'reading', name: '阅读', short: '阅读' },
-  { id: 'diet', name: '饮食计划', short: '饮食' },
+  { id: 'diet', name: '饮食', short: '饮食' },
   { id: 'general', name: '通用', short: '通用' },
 ];
 
@@ -48,10 +48,10 @@ export function moduleName(id) {
 export const NAV_ITEMS = [
   { id: 'home', name: '首页总览', icon: '▦' },
   { id: 'today', name: '今日计划', icon: '☑' },
-  { id: 'dev', name: '开发工作', icon: '⌘' },
+  { id: 'dev', name: '开发', icon: '⌘' },
   { id: 'study', name: '学习', icon: '✎' },
   { id: 'reading', name: '阅读', icon: '❐' },
-  { id: 'diet', name: '饮食计划', icon: '◍' },
+  { id: 'diet', name: '饮食', icon: '◍' },
   { id: 'settings', name: '数据与设置', icon: '⚙' },
 ];
 
@@ -438,7 +438,7 @@ export function noteToTask(state, id, opts) {
 }
 
 /* ============================================================
-   开发工作
+   开发
    ============================================================ */
 
 export function addDevTask(state, input) {
@@ -1233,10 +1233,10 @@ export function setDensity(state, value) {
    ============================================================ */
 
 const MODULE_LABELS = {
-  dev: '开发工作',
+  dev: '开发',
   study: '学习',
   reading: '阅读',
-  diet: '饮食计划',
+  diet: '饮食',
   general: '通用',
 };
 

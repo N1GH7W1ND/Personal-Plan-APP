@@ -1,5 +1,5 @@
 /**
- * 开发工作视图。
+ * 开发视图。
  * 结构：开发待办（四档状态，点标签直接切）+ 灵感收集箱（一句话随手记，可一键变成待办）。
  */
 
@@ -78,7 +78,7 @@ export default {
       : ui.empty('💡', '灵感箱是空的', '看到什么随手丢进来，之后再整理');
 
     return ui.card({
-      title: '开发工作',
+      title: '开发',
       sub: '进行中 ' + doing + ' · 今日完成 ' + doneToday + ' · 已上线 ' + groups.online.length,
       actions: ui.btn('+ 加待办', { act: 'dev-new' }, 'btn-primary btn-sm'),
       tight: true,

@@ -550,6 +550,38 @@ test('今日计划页有统计图表，且跟着所选日期走（R16）', async
   }
 });
 
+test('左侧导航的文字与顺序（开发/饮食用简称）', async () => {
+  await go('home');
+  const navEl = dom.document.getElementById('nav');
+  ok(navEl, '应有左侧导航');
+
+  const items = navEl.querySelectorAll('.nav-item');
+  const labels = items.map((a) => {
+    const span = a.querySelector('.nav-label');
+    return span ? span.textContent : '';
+  });
+
+  deepEq(labels, ['首页总览', '今日计划', '开发', '学习', '阅读', '饮食', '数据与设置'],
+    '左侧导航的文字与顺序（按本人要求"开发工作"改"开发"、"饮食计划"改"饮食"）');
+
+  // 不该再出现旧的全称
+  const raw = navEl.innerHTML;
+  notOk(raw.includes('开发工作'), '导航里不该再出现「开发工作」');
+  notOk(raw.includes('饮食计划'), '导航里不该再出现「饮食计划」');
+  // 也不该再有独立的读书笔记入口
+  notOk(raw.includes('读书笔记'), '导航里不该出现「读书笔记」（它已并入阅读）');
+
+  // 进开发页后，页面标题应与导航一致
+  await go('dev');
+  const title = dom.document.getElementById('pageTitle');
+  eq(title ? title.textContent : '', '开发', '进开发页后标题应是「开发」');
+
+  await go('diet');
+  eq(dom.document.getElementById('pageTitle').textContent, '饮食', '进饮食页后标题应是「饮食」');
+
+  await go('home');
+});
+
 test('数字键 1–7 随时能切换页面；主动点进输入框时数字归用户（回归）', async () => {
   const navIds = logic.NAV_ITEMS.map((n) => n.id);
   eq(navIds.length, 7, '当前应是 7 个导航入口');

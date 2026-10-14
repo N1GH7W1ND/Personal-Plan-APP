@@ -1071,9 +1071,9 @@ test('日历聚合：空数据返回空对象，天数统计正确', () => {
 });
 
 test('日历聚合：模块标签中文名正确', () => {
-  eq(logic.moduleLabel('dev'), '开发工作');
+  eq(logic.moduleLabel('dev'), '开发');
   eq(logic.moduleLabel('study'), '学习');
-  eq(logic.moduleLabel('diet'), '饮食计划');
+  eq(logic.moduleLabel('diet'), '饮食');
   eq(logic.moduleLabel('unknown'), '通用');
   // 已移除模块的标签应回落到通用，而不是留一个"健身计划"
   eq(logic.moduleLabel('fitness'), '通用', '已移除模块不应还有专属标签');
@@ -1169,7 +1169,7 @@ test('图表：模块页扇形图是"完成 / 未完成"，首页扇形图按模
   const modKeys = allPie.map((x) => x.key).sort();
   deepEq(modKeys, ['dev', 'diet', 'study'], '首页扇形图应按模块分布');
   const devSlice = allPie.find((x) => x.key === 'dev');
-  eq(devSlice.label, '开发工作', '扇区应带中文模块名');
+  eq(devSlice.label, '开发', '扇区应带中文模块名');
   eq(devSlice.value, 2, '开发应有 2 条');
   ok(devSlice.color, '扇区应有颜色');
 
