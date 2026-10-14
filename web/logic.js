@@ -96,7 +96,61 @@ export const MEALS = [
 ];
 export const MEAL_KEYS = MEALS.map((m) => m.key);
 
-export const PRIORITY = { normal: '普通', high: '重要' };
+/*
+ * 优先级：四象限（重要/紧急两个维度组合）。
+ * 全应用统一用这一套：任务、开发待办都用它，新增与编辑的下拉也一样。
+ * 排序时按 PRIORITY_ORDER 的顺序，也就是说"重要且紧急"排最前。
+ */
+export const PRIORITY = {
+  urgentImportant: '重要且紧急',
+  important: '重要不紧急',
+  urgent: '不重要但紧急',
+  normal: '不重要不紧急',
+};
+
+/** 从高到低的顺序（排序、下拉选项都用它，避免各处顺序不一致） */
+export const PRIORITY_ORDER = ['urgentImportant', 'important', 'urgent', 'normal'];
+
+/** 默认档位：不重要不紧急 */
+export const PRIORITY_DEFAULT = 'normal';
+
+/**
+ * 把任意来源的优先级规整成四档之一。
+ * 旧数据里只有 'high'（重要）与 'normal'（普通）两档：
+ *   high   → important（重要不紧急）
+ *   normal → normal（不重要不紧急）
+ * 这样旧任务的相对轻重不会变，也不会出现"没见过的档位"。
+ */
+export function normalizePriority(value) {
+  if (PRIORITY_ORDER.includes(value)) return value;
+  if (value === 'high') return 'important';
+  return PRIORITY_DEFAULT;
+}
+
+/** 排序权重：数字越小越靠前 */
+export function priorityRank(value) {
+  const i = PRIORITY_ORDER.indexOf(normalizePriority(value));
+  return i === -1 ? PRIORITY_ORDER.length : i;
+}
+
+/** 优先级的显示名（表格、标签用） */
+export function priorityLabel(value) {
+  return PRIORITY[normalizePriority(value)] || PRIORITY[PRIORITY_DEFAULT];
+}
+
+/** 下拉选项：与 PRIORITY_ORDER 同序，保证各处顺序一致 */
+export function priorityOptions() {
+  return PRIORITY_ORDER.map((k) => ({ value: k, label: PRIORITY[k] }));
+}
+
+/** 圈出需要显眼提示的档位（标签着色用） */
+export function priorityTone(value) {
+  const v = normalizePriority(value);
+  if (v === 'urgentImportant') return 'danger';
+  if (v === 'important') return 'warn';
+  if (v === 'urgent') return 'info';
+  return '';
+}
 
 export const WEEKDAY_NAMES = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 
@@ -212,6 +266,17 @@ export function normalizeState(input) {
   const goal = Number(out.settings.readingDailyGoal);
   out.settings.readingDailyGoal = Number.isFinite(goal) && goal >= 1 && goal <= 480 ? Math.round(goal) : 30;
 
+  /*
+   * 优先级统一成四档。
+   * 旧数据只有"重要/普通"两档，读进来时一次性换掉：
+   * 这样磁盘上不会长期留着旧档位，各处比较也不必再各自兜底。
+   */
+  for (const list of [out.tasks, out.devTasks]) {
+    for (const item of list) {
+      if (item && typeof item === 'object') item.priority = normalizePriority(item.priority);
+    }
+  }
+
   out.schemaVersion = 1;
   out.revision = Number.isFinite(out.revision) ? Number(out.revision) : 0;
   return out;
@@ -235,7 +300,7 @@ export function makeTask(input) {
     module: MODULE_IDS.includes(src.module) ? src.module : 'general',
     date: date.isValidDateStr(src.date) ? src.date : date.todayStr(),
     done: !!src.done,
-    priority: src.priority === 'high' ? 'high' : 'normal',
+    priority: normalizePriority(src.priority),
     note: src.note == null ? '' : String(src.note),
     createdAt: src.createdAt || nowIso,
     updatedAt: nowIso,
@@ -266,7 +331,7 @@ export function updateTask(state, id, patch) {
   if (p.module != null && MODULE_IDS.includes(p.module)) task.module = p.module;
   if (p.date != null && date.isValidDateStr(p.date)) task.date = p.date;
   if (p.done != null) task.done = !!p.done;
-  if (p.priority != null) task.priority = p.priority === 'high' ? 'high' : 'normal';
+  if (p.priority != null) task.priority = normalizePriority(p.priority);
   if (p.note != null) task.note = String(p.note);
   task.updatedAt = date.nowIso();
   return task;
@@ -325,7 +390,7 @@ export function tasksOn(state, day) {
     .filter((t) => t.date === d)
     .sort((a, b) => {
       if (a.done !== b.done) return a.done ? 1 : -1;
-      if (a.priority !== b.priority) return a.priority === 'high' ? -1 : 1;
+      if (a.priority !== b.priority) return priorityRank(a.priority) - priorityRank(b.priority);
       return String(a.createdAt).localeCompare(String(b.createdAt));
     });
 }
@@ -449,7 +514,7 @@ export function addDevTask(state, input) {
     id: src.id || newId('d'),
     title,
     status: DEV_ORDER.includes(src.status) ? src.status : 'todo',
-    priority: src.priority === 'high' ? 'high' : 'normal',
+    priority: normalizePriority(src.priority),
     note: src.note == null ? '' : String(src.note),
     createdAt: src.createdAt || date.nowIso(),
     updatedAt: date.nowIso(),
@@ -471,7 +536,7 @@ export function updateDevTask(state, id, patch) {
     if (t) item.title = t;
   }
   if (p.status != null && DEV_ORDER.includes(p.status)) item.status = p.status;
-  if (p.priority != null) item.priority = p.priority === 'high' ? 'high' : 'normal';
+  if (p.priority != null) item.priority = normalizePriority(p.priority);
   if (p.note != null) item.note = String(p.note);
   item.updatedAt = date.nowIso();
   return item;
@@ -544,7 +609,7 @@ export function devIdeaToTask(state, id, opts) {
   const devTask = addDevTask(state, {
     title: idea.text,
     status: (opts && opts.status) || 'todo',
-    priority: (opts && opts.priority) || 'normal',
+    priority: normalizePriority(opts && opts.priority),
   });
   if (!devTask) return null;
   removeDevIdea(state, id);

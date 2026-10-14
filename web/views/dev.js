@@ -27,7 +27,9 @@ function devRow(item) {
       '<div class="row-title" data-act="dev-edit" data-id="' + ui.escapeHtml(item.id) + '" style="cursor:text">' +
       ui.escapeHtml(item.title) + '</div>' +
       ui.rowMeta(
-        (item.priority === 'high' ? ui.tag('重点', 'warn') : '') +
+        (logic.normalizePriority(item.priority) !== logic.PRIORITY_DEFAULT
+          ? ui.tag(logic.priorityLabel(item.priority), logic.priorityTone(item.priority) || 'warn')
+          : '') +
         statusChip(item) +
         (item.note ? '<span class="muted">' + ui.escapeHtml(item.note) + '</span>' : '')
       ),
@@ -180,7 +182,7 @@ export default {
           '<div class="field"><label class="field-label">状态</label>' +
           ui.select('status', item.status, logic.DEV_ORDER.map((s) => ({ value: s, label: logic.DEV_STATUS[s] }))) + '</div>' +
           '<div class="field"><label class="field-label">优先级</label>' +
-          ui.select('priority', item.priority, [{ value: 'normal', label: '普通' }, { value: 'high', label: '重点' }]) + '</div>' +
+          ui.select('priority', item.priority, logic.priorityOptions()) + '</div>' +
           '</div>' +
           '<div class="field"><label class="field-label">备注</label>' +
           ui.textarea('note', item.note, '复现步骤、方案、链接…', 3) + '</div>',
@@ -247,7 +249,7 @@ export default {
         body: '<div class="action-list">' +
           '<button type="button" class="action-item" data-act="menu-pick" data-key="edit"><span class="ai-icon">✎</span><span>编辑</span></button>' +
           '<button type="button" class="action-item" data-act="menu-pick" data-key="priority"><span class="ai-icon">⚑</span><span>' +
-          (item.priority === 'high' ? '取消重点' : '标记为重点') + '</span></button>' +
+          '改优先级（当前：' + logic.priorityLabel(item.priority) + '）' + '</span></button>' +
           '<button type="button" class="action-item" data-act="menu-pick" data-key="push"><span class="ai-icon">↩</span><span>推送到今日</span></button>' +
           '<button type="button" class="action-item danger" data-act="menu-pick" data-key="delete"><span class="ai-icon">✕</span><span>删除</span></button>' +
           '</div>',
@@ -260,8 +262,8 @@ export default {
             ui.closeModal();
             if (key === 'edit') { openEditor(item); return; }
             if (key === 'priority') {
-              store.dispatch((s) => logic.updateDevTask(s, id, { priority: item.priority === 'high' ? 'normal' : 'high' }), { label: '改优先级' });
-              helpers.rerender();
+              // 优先级有四档，没法用"点一下切一档"表达清楚，直接打开编辑弹窗让它选
+              openEditor(item);
               return;
             }
             if (key === 'push') {

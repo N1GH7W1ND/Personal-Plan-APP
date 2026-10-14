@@ -187,11 +187,15 @@ test('非法模块与非法日期会被纠正', () => {
 test('updateTask 只改指定字段', () => {
   const s = fresh();
   const t = logic.addTask(s, { title: '原标题', module: 'dev', date: '2026-10-08' });
-  logic.updateTask(s, t.id, { title: '新标题', priority: 'high' });
+  logic.updateTask(s, t.id, { title: '新标题', priority: 'urgentImportant' });
   eq(t.title, '新标题');
-  eq(t.priority, 'high');
+  eq(t.priority, 'urgentImportant', '四档之一应原样保留');
   eq(t.module, 'dev', '未指定的字段不应变');
   eq(t.date, '2026-10-08', '未指定的字段不应变');
+
+  // 旧的 'high' 进来会被迁移成 'important'（见"优先级"那组用例）
+  logic.updateTask(s, t.id, { priority: 'high' });
+  eq(t.priority, 'important', '旧档位应迁移，而不是原样写进去');
 
   logic.updateTask(s, t.id, { title: '   ' });
   eq(t.title, '新标题', '空白标题不应覆盖原标题');
@@ -1017,6 +1021,122 @@ test('笔记：未关联书的笔记不会被删书误伤（R11.11 补充）', (
   logic.removeBook(s, book.id);
   eq(s.bookNotes.length, 2, '只应删掉真正关联 A 的那条');
   ok(s.bookNotes.every((n) => n.text !== '关联 A'));
+});
+
+test('优先级：四档齐全，旧的两档数据能平滑迁移', () => {
+  // 四档的名称与顺序
+  deepEq(logic.PRIORITY_ORDER, ['urgentImportant', 'important', 'urgent', 'normal']);
+  eq(logic.PRIORITY.urgentImportant, '重要且紧急');
+  eq(logic.PRIORITY.important, '重要不紧急');
+  eq(logic.PRIORITY.urgent, '不重要但紧急');
+  eq(logic.PRIORITY.normal, '不重要不紧急');
+  eq(logic.PRIORITY_DEFAULT, 'normal', '默认是"不重要不紧急"');
+
+  // 四档都能原样保留
+  for (const k of logic.PRIORITY_ORDER) {
+    eq(logic.normalizePriority(k), k, k + ' 应原样保留');
+    eq(logic.priorityLabel(k), logic.PRIORITY[k]);
+  }
+
+  // 旧数据只有两档：high（重要）与 normal（普通）
+  eq(logic.normalizePriority('high'), 'important',
+    '旧的"重要"应迁移为"重要不紧急"，保持它仍然靠前');
+  eq(logic.normalizePriority('normal'), 'normal', '旧的"普通"应迁移为"不重要不紧急"');
+
+  // 没见过的值一律回落默认，不制造第五档
+  for (const bad of ['xxx', '', null, undefined, 0, {}, []]) {
+    eq(logic.normalizePriority(bad), 'normal', '非法值应回落到默认：' + JSON.stringify(bad));
+  }
+
+  // 排序权重：越小越靠前
+  eq(logic.priorityRank('urgentImportant'), 0);
+  eq(logic.priorityRank('important'), 1);
+  eq(logic.priorityRank('urgent'), 2);
+  eq(logic.priorityRank('normal'), 3);
+  eq(logic.priorityRank('high'), 1, '旧值也要给出正确权重');
+  eq(logic.priorityRank('乱写'), 3, '非法值按最低优先级');
+
+  // 下拉选项：顺序与 PRIORITY_ORDER 一致，四档四行
+  const opts = logic.priorityOptions();
+  deepEq(opts.map((o) => o.value), logic.PRIORITY_ORDER);
+  deepEq(opts.map((o) => o.label),
+    ['重要且紧急', '重要不紧急', '不重要但紧急', '不重要不紧急']);
+  eq(opts.length, 4, '下拉应正好四档');
+
+  // 标签色调：越紧急越醒目，最低档不标色
+  eq(logic.priorityTone('urgentImportant'), 'danger');
+  eq(logic.priorityTone('important'), 'warn');
+  eq(logic.priorityTone('urgent'), 'info');
+  eq(logic.priorityTone('normal'), '', '最低档不标色，列表才不会满屏标签');
+});
+
+test('优先级：新增与修改都只接受四档', () => {
+  const s = fresh();
+
+  eq(logic.addTask(s, { title: 'A' }).priority, 'normal', '不填时默认最低档');
+  for (const k of logic.PRIORITY_ORDER) {
+    eq(logic.addTask(s, { title: k, priority: k }).priority, k, '应保留 ' + k);
+  }
+  eq(logic.addTask(s, { title: '旧的', priority: 'high' }).priority, 'important',
+    '用旧档位新增也会被迁移');
+  eq(logic.addTask(s, { title: '乱写', priority: '第五档' }).priority, 'normal');
+
+  // 修改同理
+  const t2 = logic.addTask(s, { title: '改' });
+  logic.updateTask(s, t2.id, { priority: 'urgentImportant' });
+  eq(t2.priority, 'urgentImportant');
+  logic.updateTask(s, t2.id, { priority: '不存在的档' });
+  eq(t2.priority, 'normal', '非法值应回落，而不是写进去');
+
+  // 开发待办也用同一套
+  const d = logic.addDevTask(s, { title: '待办', priority: 'urgent' });
+  eq(d.priority, 'urgent');
+  logic.updateDevTask(s, d.id, { priority: 'high' });
+  eq(d.priority, 'important', '开发待办同样迁移旧档位');
+});
+
+test('优先级：按四档顺序排序，"重要且紧急"排最前', () => {
+  const s = fresh();
+  const d = '2026-10-08';
+
+  // 故意打乱加入顺序
+  logic.addTask(s, { title: '不重要不紧急', date: d, priority: 'normal' });
+  logic.addTask(s, { title: '重要且紧急', date: d, priority: 'urgentImportant' });
+  logic.addTask(s, { title: '不重要但紧急', date: d, priority: 'urgent' });
+  logic.addTask(s, { title: '重要不紧急', date: d, priority: 'important' });
+
+  deepEq(logic.tasksOn(s, d).map((x) => x.title),
+    ['重要且紧急', '重要不紧急', '不重要但紧急', '不重要不紧急'],
+    '应按四档顺序从高到低排出');
+
+  // 旧数据（两档）排进来也要落在正确位置：重要应排在紧急之前
+  const s2 = fresh();
+  logic.addTask(s2, { title: '旧的普通', date: d, priority: 'normal' });
+  logic.addTask(s2, { title: '旧的紧急', date: d, priority: 'urgent' });
+  logic.addTask(s2, { title: '旧的important', date: d, priority: 'high' });
+  deepEq(logic.tasksOn(s2, d).map((x) => x.title),
+    ['旧的important', '旧的紧急', '旧的普通'],
+    '旧的"重要"应排在"不重要但紧急"之前');
+});
+
+test('优先级：旧数据读进来时就被规整成四档（磁盘不留旧档位）', () => {
+  const n = logic.normalizeState({
+    tasks: [
+      { id: 't1', title: 'A', priority: 'high' },
+      { id: 't2', title: 'B', priority: 'normal' },
+      { id: 't3', title: 'C', priority: '乱写' },
+      { id: 't4', title: 'D' },
+    ],
+    devTasks: [{ id: 'd1', title: 'E', priority: 'high' }],
+  });
+
+  deepEq(n.tasks.map((x) => x.priority), ['important', 'normal', 'normal', 'normal']);
+  deepEq(n.devTasks.map((x) => x.priority), ['important']);
+  // 四档之外的值不该再出现在数据里
+  for (const x of n.tasks.concat(n.devTasks)) {
+    ok(logic.PRIORITY_ORDER.includes(x.priority),
+      '规整后只能是四档之一，实际：' + x.priority);
+  }
 });
 
 /* ---------------- 日历聚合 ---------------- */

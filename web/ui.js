@@ -4,7 +4,7 @@
  */
 
 import * as date from './date.js';
-import { moduleName } from './logic.js';
+import { moduleName, normalizePriority, priorityLabel, priorityTone, PRIORITY_DEFAULT, priorityOptions } from './logic.js';
 
 /* ---------------- 基础 ---------------- */
 
@@ -366,7 +366,14 @@ export function taskRow(task, opts) {
   const showDate = o.showDate || task.date !== today;
 
   const meta = [moduleTag(task.module, { clickable: true, attrs: { act: 'jump', id: task.id, module: task.module } })];
-  if (task.priority === 'high') meta.push(tag('重要', 'warn'));
+  /*
+   * 优先级标签：四档里只有前三档需要显眼提示，
+   * "不重要不紧急"是默认状态，不占位置（列表才不会满屏标签）。
+   */
+  const pri = normalizePriority(task.priority);
+  if (pri !== PRIORITY_DEFAULT) {
+    meta.push(tag(priorityLabel(pri), priorityTone(pri) || 'warn'));
+  }
   if (showDate) {
     meta.push('<span class="muted">' + escapeHtml(date.relativeDay(task.date)) + '</span>');
   }
@@ -850,7 +857,7 @@ export function taskMenu(task, onPick) {
     { key: 'edit', icon: '✎', label: '编辑内容与备注' },
     { key: 'date', icon: '📅', label: '改日期', sub: date.relativeDay(task.date) },
     { key: 'module', icon: '▤', label: '换模块', sub: moduleName(task.module) },
-    { key: 'priority', icon: '⚑', label: task.priority === 'high' ? '取消重要标记' : '标记为重要' },
+    { key: 'priority', icon: '⚑', label: '改优先级（当前：' + priorityLabel(task.priority) + '）' },
     { key: 'today', icon: '↩', label: '挪到今天' },
     { key: 'delete', icon: '✕', label: '删除任务', danger: true },
   ];
@@ -888,7 +895,7 @@ export function taskEditor(task, opts) {
     '<input class="input" type="date" data-field="date" value="' + escapeHtml(task.date) + '"></div>' +
     '</div>' +
     '<div class="field"><label class="field-label">优先级</label>' +
-    select('priority', task.priority, [{ value: 'normal', label: '普通' }, { value: 'high', label: '重要' }]) + '</div>' +
+    select('priority', task.priority, priorityOptions()) + '</div>' +
     '<div class="field"><label class="field-label">备注</label>' +
     textarea('note', task.note, '可选，例如上下文、链接、注意事项', 2) + '</div>';
 

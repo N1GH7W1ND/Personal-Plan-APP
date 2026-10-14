@@ -80,9 +80,11 @@ export function openTaskMenu(store, id, rerender) {
       return;
     }
     if (key === 'priority') {
-      const next = task.priority === 'high' ? 'normal' : 'high';
-      store.dispatch((s) => logic.updateTask(s, id, { priority: next }), { label: '改优先级' });
-      if (rerender) rerender();
+      /*
+       * 优先级有四档，没法用"点一下切一档"表达清楚，
+       * 所以这里直接打开编辑弹窗让对方选（菜单文案也写明了当前是哪一档）。
+       */
+      openTaskEditor(store, id, rerender);
       return;
     }
     if (key === 'today') {

@@ -550,6 +550,103 @@ test('今日计划页有统计图表，且跟着所选日期走（R16）', async
   }
 });
 
+test('优先级四档出现在所有加任务的地方（顶栏快速添加 + 各模块 + 编辑）', async () => {
+  const want = ['重要且紧急', '重要不紧急', '不重要但紧急', '不重要不紧急'];
+  const wantValues = ['urgentImportant', 'important', 'urgent', 'normal'];
+
+  const readOptions = (scope) => {
+    const sel = scope.querySelector('[data-field="priority"]');
+    return sel ? sel.querySelectorAll('option').map((o) => o.textContent) : null;
+  };
+  const readValues = (scope) => {
+    const sel = scope.querySelector('[data-field="priority"]');
+    return sel ? sel.querySelectorAll('option').map((o) => o.getAttribute('value')) : null;
+  };
+
+  try {
+    await go('home');
+
+    // 1) 顶栏「快速添加」弹窗
+    dom.document.getElementById('btnQuickAdd').click();
+    await waitRender();
+    eq(modal().querySelector('[data-field="priority"]') ? 'ok' : 'missing', 'ok',
+      '快速添加弹窗应有优先级下拉');
+    deepEq(readOptions(modal()), want, '快速添加的四档名称与顺序');
+    deepEq(readValues(modal()), wantValues, '快速添加的四档取值');
+    findByAct(modal(), 'close')[0].click();
+    await waitRender();
+
+    // 2) 逐个模块页：新增/编辑任务的弹窗都要有同样的四档
+    for (const route of ['dev', 'study', 'reading', 'diet', 'today']) {
+      await go(route);
+      assertNoViewError();
+      // 各模块页的「加一条」入口（今天是 add-here；模块页是 add-task 类）
+      const addBtn = findByAct(view(), 'add-task')[0] || findByAct(view(), 'add-here')[0];
+      if (!addBtn) continue; // 该页没有内联添加入口就跳过
+      addBtn.click();
+      await waitRender();
+      const opts = readOptions(modal());
+      if (opts) {
+        deepEq(opts, want, route + ' 页新增任务的四档名称与顺序');
+      }
+      const closeBtn = findByAct(modal(), 'close')[0];
+      if (closeBtn) closeBtn.click();
+      await waitRender();
+    }
+
+    // 3) 编辑已有任务时也是这四档，且当前值就是数据里的档位
+    store.dispatch((s) => logic.addTask(s, {
+      title: '优先级测试任务', module: 'dev', date: date.todayStr(), priority: 'urgent',
+    }));
+    await go('today');
+    const task = store.getState().tasks.find((t) => t.title === '优先级测试任务');
+    findByActAndId(view(), 'task-menu', task.id).click();
+    await waitRender();
+    const editItem = findByAct(modal(), 'menu-pick').find((el) => el.getAttribute('data-key') === 'edit');
+    if (editItem) {
+      editItem.click();
+      await waitRender();
+      deepEq(readOptions(modal()), want, '编辑任务的四档名称与顺序');
+      eq(modal().querySelector('[data-field="priority"]').value, 'urgent',
+        '编辑时应选中任务当前的档位');
+      findByAct(modal(), 'close')[0].click();
+      await waitRender();
+    }
+  } finally {
+    await resetAfterTest();
+  }
+});
+
+test('优先级标签：前三档显示、最低档不显示（列表不被标签塞满）', async () => {
+  const d = date.todayStr();
+  try {
+    store.dispatch((s) => {
+      logic.addTask(s, { title: '紧急重要的活', module: 'dev', date: d, priority: 'urgentImportant' });
+      logic.addTask(s, { title: '重要不紧急的活', module: 'dev', date: d, priority: 'important' });
+      logic.addTask(s, { title: '不重要但紧急的活', module: 'dev', date: d, priority: 'urgent' });
+      logic.addTask(s, { title: '不重要不紧急的活', module: 'dev', date: d, priority: 'normal' });
+    });
+    await go('today');
+    assertNoViewError();
+
+    const html = view().innerHTML;
+    ok(html.includes('重要且紧急'), '应显示"重要且紧急"标签');
+    ok(html.includes('重要不紧急'), '应显示"重要不紧急"标签');
+    ok(html.includes('不重要但紧急'), '应显示"不重要但紧急"标签');
+    ok(!html.includes('不重要不紧急</span>') && !html.includes('>不重要不紧急<'),
+      '默认档位不该显示标签（否则列表满屏标签）');
+
+    // 排序：重要且紧急应排在最前面
+    const titles = view().querySelectorAll('.row-title').map((el) => el.textContent);
+    const idx = (name) => titles.findIndex((x) => x.includes(name));
+    ok(idx('紧急重要的活') < idx('重要不紧急的活'), '"重要且紧急"应排在"重要不紧急"之前');
+    ok(idx('重要不紧急的活') < idx('不重要但紧急的活'), '"重要不紧急"应排在"不重要但紧急"之前');
+    ok(idx('不重要但紧急的活') < idx('不重要不紧急的活'), '"不重要但紧急"应排在最低档之前');
+  } finally {
+    await resetAfterTest();
+  }
+});
+
 test('左侧导航的文字与顺序（开发/饮食用简称）', async () => {
   await go('home');
   const navEl = dom.document.getElementById('nav');
