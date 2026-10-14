@@ -63,16 +63,16 @@
   --blur: 18px;
 
   /* 字体阶梯 */
-  --fs-xs: 11.5px;
-  --fs-sm: 12.5px;
-  --fs-md: 13.5px;
-  --fs-lg: 15px;
-  --fs-xl: 18px;
-  --fs-2xl: 22px;
+  --fs-xs: 12px;
+  --fs-sm: 13.5px;
+  --fs-md: 14.5px;
+  --fs-lg: 16px;
+  --fs-xl: 19px;
+  --fs-2xl: 24px;
 
   --row-h: 42px;
-  --gap: 16px;
-  --sidebar-w: 224px;
+  --gap: 18px;
+  --sidebar-w: 248px;
 }
 
 /* 紧凑模式：由设置页写入 body.density-compact */
@@ -2051,11 +2051,12 @@ a { color: var(--primary); text-decoration: none; }
 
 .quick-add {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
+  padding: 2px 0;
 }
 
-.quick-add .select { width: 128px; flex: 0 0 128px; }
+.quick-add .select { width: 140px; flex: 0 0 140px; }
 .quick-add .input { flex: 1 1 auto; }
 
 /* 逾期折叠区 */

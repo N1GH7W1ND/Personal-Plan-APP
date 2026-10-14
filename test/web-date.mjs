@@ -242,6 +242,49 @@ test('样式表：图表空档不再用斑马纹空柱（R15）', () => {
     '空档的柱子容器仍应有独立样式（保留日期结构，而不是整根不画）');
 });
 
+/*
+ * 尺寸与字号的守护。
+ * 只设下限：以后微调（放大或小改）不会误报，但"被改小回去"会被发现。
+ * 背景：左侧栏加宽、字整体放大、模块页顶部那块的输入框放宽，
+ * 这些都是人眼才能判断好坏的调整，至少把数值锁住不让它悄悄缩水。
+ */
+test('样式表：左侧栏宽度、字号与输入框宽度不缩水（R22）', () => {
+  const css = readFileSync(join(ROOT, 'web', 'styles.css'), 'utf8');
+  const code = css.replace(/\/\*[\s\S]*?\*\//g, '');
+
+  const numOf = (re, label) => {
+    const m = re.exec(code);
+    ok(m, '应能找到 ' + label);
+    return Number(m[1]);
+  };
+
+  // 左侧栏：加宽过，不该被改回原来的 224
+  const sidebar = numOf(/--sidebar-w:\s*(\d+)px/, '侧栏宽度变量');
+  ok(sidebar >= 240, '左侧栏宽度应 >= 240px（实际 ' + sidebar + '）');
+
+  // 字体阶梯：每一项都不低于当前值，且顺序严格递增（层级不能乱）
+  const fs6 = ['xs', 'sm', 'md', 'lg', 'xl', '2xl'].map((k) => {
+    const m = new RegExp('--fs-' + k + ':\\s*([\\d.]+)px').exec(code);
+    ok(m, '应有字号变量 --fs-' + k);
+    return Number(m[1]);
+  });
+  const minFor = [12, 13.5, 14.5, 16, 19, 24];
+  const names = ['xs', 'sm', 'md', 'lg', 'xl', '2xl'];
+  for (let i = 0; i < fs6.length; i++) {
+    ok(fs6[i] >= minFor[i],
+      '--fs-' + names[i] + ' 应 >= ' + minFor[i] + 'px（实际 ' + fs6[i] + '）');
+  }
+  for (let i = 1; i < fs6.length; i++) {
+    ok(fs6[i] > fs6[i - 1],
+      '字号阶梯应严格递增：--fs-' + names[i - 1] + '(' + fs6[i - 1] +
+      ') < --fs-' + names[i] + '(' + fs6[i] + ')');
+  }
+
+  // 模块页顶部「加待办 / 加内容」那一块的板块下拉：放宽过
+  const sel = numOf(/\.quick-add\s+\.select\s*\{[^}]*width:\s*(\d+)px/, '快速添加下拉宽度');
+  ok(sel >= 136, '快速添加的下拉宽度应 >= 136px（实际 ' + sel + '）');
+});
+
 /* ---------------- 样式表健康检查 ---------------- */
 
 test('样式表：括号配对，且 var() 引用的变量都有定义', () => {
