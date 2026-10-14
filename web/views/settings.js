@@ -1,6 +1,6 @@
 /**
  * 数据与设置视图。
- * 结构：数据状态（文件在哪、上次保存、各类条数）+ 导出/恢复 + 偏好设置 + 危险操作。
+ * 结构：数据状态（文件在哪、上次保存、各类条数）+ 左侧板块选择 + 导出/恢复 + 危险操作。
  */
 
 import * as date from '../date.js';
@@ -46,7 +46,10 @@ export default {
         (status.recovered
           ? '<div class="notice" style="margin-top:14px">本次启动时检测到数据文件异常，已从备份自动恢复' +
             (status.recoveredFrom ? '（' + ui.escapeHtml(status.recoveredFrom) + '）' : '') + '。</div>'
-          : ''),
+          : '') +
+        // 这条原本挂在"偏好设置"里；那一块删掉后挪到这儿，免得规则说明丢失
+        '<p class="muted small" style="margin:14px 0 0">' +
+        '“新的一天”以本机时间 0 点为界，固定不可改（见 PRD D9）。</p>',
       footer:
         ui.btn('打开数据文件夹', { act: 'open-folder' }, 'btn-sm') +
         ui.btn('立即保存', { act: 'save-now' }, 'btn-sm') +
@@ -99,26 +102,6 @@ export default {
             '<p class="muted">首页总览、今日计划、数据与设置是应用骨架，固定显示，不在这里勾选。</p>' +
           '</div>';
       })(),
-    }) +
-    ui.card({
-      title: '偏好设置',
-      sub: '改了立刻生效',
-      body:
-        '<div class="field-row">' +
-        '<div class="field"><label class="field-label">每日阅读目标（分钟）</label>' +
-        '<input class="input" type="number" min="1" max="480" data-field="readingDailyGoal" value="' +
-          Number(state.settings.readingDailyGoal) + '"></div>' +
-        '<div class="field"><label class="field-label">每周健身目标（次）</label>' +
-        '<input class="input" type="number" min="1" max="21" data-field="fitnessWeeklyGoal" value="' +
-          Number(state.settings.fitnessWeeklyGoal) + '"></div>' +
-        '</div>' +
-        '<div class="field"><label class="field-label">界面密度</label>' +
-        ui.select('density', state.settings.density, [
-          { value: 'comfortable', label: '舒适' },
-          { value: 'compact', label: '紧凑' },
-        ]) +
-        '</div>' +
-        '<p class="muted small" style="margin-bottom:0">“新的一天”以本机时间 0 点为界，固定不可改（见 PRD D9）。</p>',
     }) +
     ui.card({
       title: '危险操作',
@@ -218,34 +201,18 @@ export default {
   },
 
   mounted(root, ctx, helpers) {
-    // 偏好设置：改完立刻写入
-    const readGoal = root.querySelector('[data-field="readingDailyGoal"]');
-    if (readGoal) {
-      readGoal.onchange = () => {
-        const v = Number(readGoal.value);
-        // setReadingDailyGoal 会把非法值归一到默认值，并返回实际生效的分钟数
-        const applied = ctx.dispatch((s) => logic.setReadingDailyGoal(s, v), '改每日阅读目标');
-        ui.toast('每日阅读目标已改为 ' + applied + ' 分钟', { type: 'ok', duration: 2000 });
-      };
-    }
-    const fitGoal = root.querySelector('[data-field="fitnessWeeklyGoal"]');
-    if (fitGoal) {
-      fitGoal.onchange = () => {
-        const v = Number(fitGoal.value);
-        // setFitnessWeeklyGoal 会把非法值归一，并返回实际生效的次数
-        const applied = ctx.dispatch((s) => logic.setFitnessWeeklyGoal(s, v), '改每周健身目标');
-        ui.toast('每周健身目标已改为 ' + applied + ' 次', { type: 'ok', duration: 2000 });
-      };
-    }
-
-    // 左侧栏显示哪些模块：勾选即生效
+    /*
+     * 「左侧板块选择」的勾选框：勾上/取消立刻写入。
+     * 说明：偏好设置那一整块（阅读目标、健身目标、界面密度）按本人要求已删除，
+     * 所以这里只剩板块勾选的处理。
+     */
     for (const id of logic.NAV_MODULE_CHOICES) {
       const box = root.querySelector('[data-nav-toggle="' + id + '"]');
       if (!box) continue;
       box.onchange = () => {
         const applied = ctx.dispatch(
           (s) => logic.toggleNavModule(s, id, box.checked),
-          box.checked ? '显示模块' : '隐藏模块'
+          box.checked ? '显示板块' : '隐藏板块'
         );
         const name = logic.moduleName(id);
         if (!box.checked && applied.includes(id)) {
@@ -262,13 +229,6 @@ export default {
             : '左侧栏已隐藏「' + name + '」', { type: 'ok', duration: 2000 });
         }
         (helpers && helpers.rerender ? helpers.rerender : ctx.rerender)();
-      };
-    }
-
-    const density = root.querySelector('[data-field="density"]');
-    if (density) {
-      density.onchange = () => {
-        ctx.dispatch((s) => logic.setDensity(s, density.value), '改界面密度');
       };
     }
   },

@@ -342,45 +342,42 @@ test('清空前会自动备份一次', async () => {
 });
 
 /* ============================================================
-   偏好设置
+   偏好设置（按本人要求整块删除）
    ============================================================ */
 
-test('设置页不再有健身目标（模块已移除）', async () => {
+test('设置页不再有「偏好设置」块（按本人要求删除）', async () => {
   await store.clearAll();
   await go('settings');
+  assertNoViewError();
 
-  // 健身已加回来：设置页应该有"每周健身目标"
-  const goal = view().querySelector('[data-field="fitnessWeeklyGoal"]');
-  ok(goal, '设置页应有「每周健身目标」输入框');
-  eq(goal.value, String(store.getState().settings.fitnessWeeklyGoal),
-    '输入框应显示当前值');
-  ok(view().innerHTML.includes('健身'), '设置页应出现健身字样');
-  ok('fitnessWeeklyGoal' in store.getState().settings, '数据里应有健身目标');
+  const html = view().innerHTML;
+  notOk(html.includes('偏好设置'), '设置页不该再有「偏好设置」标题');
+  for (const f of ['readingDailyGoal', 'fitnessWeeklyGoal', 'density']) {
+    eq(view().querySelector('[data-field="' + f + '"]'), null,
+      '不该再有 ' + f + ' 这一项');
+  }
+
+  /*
+   * 但数据里的字段要留着：
+   * 阅读页与健身页都读它们（阅读每日目标、每周健身目标），
+   * 删掉字段会让那两个页面失去目标值。
+   */
+  const st = store.getState().settings;
+  eq(st.readingDailyGoal, 30, '阅读目标仍应有值（用默认 30）');
+  eq(st.fitnessWeeklyGoal, 3, '健身目标仍应有值（用默认 3）');
 });
 
-test('改界面密度会切换紧凑模式并落盘', async () => {
-  await go('settings');
-  const density = view().querySelector('[data-field="density"]');
-  ok(density, '应有界面密度下拉');
-  eq(density.value, 'comfortable', '默认舒适');
+test('偏好设置删掉后，阅读与健身仍按默认目标算进度', async () => {
+  await store.clearAll();
+  await go('reading');
+  assertNoViewError();
+  ok(view().innerHTML.includes('read-goal'), '阅读页仍应有今日目标区');
+  ok(view().innerHTML.includes('30'), '应按默认 30 分钟显示目标');
 
-  density.value = 'compact';
-  density.fire('change');
-  await waitRender();
-
-  eq(store.getState().settings.density, 'compact', '设置应写进数据');
-  ok(dom.document.body.classList.contains('density-compact'), 'body 应加上紧凑样式类');
-
-  await store.flushNow();
-  eq(readDisk().settings.density, 'compact', '应落盘');
-
-  // 改回舒适
-  const density2 = view().querySelector('[data-field="density"]');
-  density2.value = 'comfortable';
-  density2.fire('change');
-  await waitRender();
-  eq(dom.document.body.classList.contains('density-compact'), false, '应能改回舒适');
-  await store.flushNow();
+  await go('fitness');
+  assertNoViewError();
+  ok(view().innerHTML.includes('本周练了'), '健身页仍应有本周目标区');
+  ok(view().innerHTML.includes('3'), '应按默认 3 次显示目标');
 });
 
 test('设置页不提供「新的一天」时间配置（PRD D9）', async () => {
