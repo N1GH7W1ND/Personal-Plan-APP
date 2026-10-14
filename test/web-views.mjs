@@ -67,6 +67,22 @@ const modal = () => dom.document.getElementById('modalLayer');
 const noteCardAll = (root) => (root || view()).querySelectorAll('.note-card');
 const noteCard = (root, id) => (root || view()).querySelector('#note-' + id);
 
+/**
+ * 用例收尾：清空数据并回到首页。
+ *
+ * 阅读与笔记的用例会在同一个 store 里造书、造笔记、造阅读记录。
+ * 不清理就会污染后面的用例——曾经因此出现"笔记数 3 却显示 4"这类
+ * 看着像功能坏了、其实是上个用例留下的数据的问题。
+ * 统一放在 finally 里，断言失败时也能清干净。
+ */
+async function resetAfterTest() {
+  try {
+    await store.clearAll();
+  } catch { /* 清理失败不掩盖真正的断言失败 */ }
+  await go('home');
+  await waitRender();
+}
+
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 /**
@@ -105,158 +121,200 @@ function assertNoViewError() {
   }
 }
 
-test('阅读：加书 → 进度条 → 刷页 → 读完自动置为已读完（界面全流程）', async () => {
-  await go('reading');
-  assertNoViewError();
+test('阅读：加书 → 进度条 → 记页码 → 读完自动置为已读完（界面全流程）', async () => {
+  try {
+    await go('reading');
+    assertNoViewError();
 
-  // 空书架要有引导
-  notOk(view().innerHTML.includes('book-row'), '一开始不该有书');
-  ok(view().innerHTML.includes('书架还是空的'), '空书架应有引导文案');
+    // 空书架要有引导
+    notOk(view().innerHTML.includes('book-row'), '一开始不该有书');
+    ok(view().innerHTML.includes('书架还是空的'), '空书架应有引导文案');
 
-  // 加一本书
-  findByAct(view(), 'book-new')[0].click();
-  await waitRender();
-  modal().querySelector('[data-field="title"]').value = '置身事内';
-  modal().querySelector('[data-field="author"]').value = '兰小欢';
-  modal().querySelector('[data-field="totalPages"]').value = '300';
-  findByAct(modal(), 'save')[0].click();
-  await waitRender();
-  assertNoViewError();
+    // 加一本书
+    findByAct(view(), 'book-new')[0].click();
+    await waitRender();
+    modal().querySelector('[data-field="title"]').value = '置身事内';
+    modal().querySelector('[data-field="author"]').value = '兰小欢';
+    modal().querySelector('[data-field="totalPages"]').value = '300';
+    findByAct(modal(), 'save')[0].click();
+    await waitRender();
+    assertNoViewError();
 
-  const book = store.getState().books[0];
-  ok(book, '应新增一本书');
-  eq(book.title, '置身事内');
-  eq(book.author, '兰小欢');
-  eq(book.status, 'want', '新书默认想读');
-  eq(book.totalPages, 300);
+    const book = store.getState().books[0];
+    ok(book, '应新增一本书');
+    eq(book.title, '置身事内');
+    eq(book.author, '兰小欢');
+    eq(book.status, 'want', '新书默认想读');
+    eq(book.totalPages, 300);
 
-  // 界面上应出现这本书与进度条
-  let html = view().innerHTML;
-  ok(html.includes('置身事内'), '列表里应显示书名');
-  ok(html.includes('0%'), '应显示 0% 进度');
-  ok(html.includes('book-progress'), '应画出进度条');
+    // 界面上应出现这本书与进度条
+    const html = view().innerHTML;
+    ok(html.includes('置身事内'), '列表里应显示书名');
+    ok(html.includes('0%'), '应显示 0% 进度');
+    ok(html.includes('book-progress'), '应画出进度条');
 
-  // 点「+10 页」推进进度，并自动从"想读"转为"在读"
-  findByActAndId(view(), 'book-page', book.id).click();
-  await waitRender();
-  eq(logic.findBook(store.getState(), book.id).currentPage, 10, '应前进 10 页');
-  eq(logic.findBook(store.getState(), book.id).status, 'reading', '有进度后应自动变在读');
-  ok(view().innerHTML.includes('3%'), '进度百分比应跟着变（10/300 ≈ 3%）');
+    // 回归（按本人要求去掉）：书架行上不该再有「+10 页」这种一键刷页按钮
+    notOk(html.includes('+10 页'), '书行上不该再有「+10 页」按钮');
+    eq(findByAct(view(), 'book-page').length, 0, '不该再渲染 book-page 按钮');
+    // 但"编辑书时填页码"这条推进进度的路仍在
+    ok(findByActAndId(view(), 'book-menu', book.id), '每行仍应有「···」菜单');
 
-  // 直接把页码设到末尾，应自动标记为已读完
-  store.dispatch((s) => logic.updateBook(s, book.id, { currentPage: 300 }));
-  await waitRender();
-  const done = logic.findBook(store.getState(), book.id);
-  eq(done.status, 'finished', '读到最后一页应自动变成已读完');
-  eq(logic.bookProgress(done), 100, '进度应为 100%');
-  ok(done.finishedAt, '应记下完成日期');
-  ok(view().innerHTML.includes('100%'), '界面应显示 100%');
+    // 走编辑弹窗把页码填成 10：想读 → 在读，进度条跟着变
+    store.dispatch((s) => logic.updateBook(s, book.id, { currentPage: 10 }));
+    await waitRender();
+    eq(logic.findBook(store.getState(), book.id).currentPage, 10, '页码应写入');
+    eq(logic.findBook(store.getState(), book.id).status, 'reading', '有进度后应自动变在读');
+    ok(view().innerHTML.includes('3%'), '进度百分比应跟着变（10/300 ≈ 3%）');
+
+    // 直接把页码设到末尾，应自动标记为已读完
+    store.dispatch((s) => logic.updateBook(s, book.id, { currentPage: 300 }));
+    await waitRender();
+    const done = logic.findBook(store.getState(), book.id);
+    eq(done.status, 'finished', '读到最后一页应自动变成已读完');
+    eq(logic.bookProgress(done), 100, '进度应为 100%');
+    ok(done.finishedAt, '应记下完成日期');
+    ok(view().innerHTML.includes('100%'), '界面应显示 100%');
+  } finally {
+    await resetAfterTest();
+  }
 });
 
 test('阅读：记一次阅读会计入今日目标，并可按页推进书', async () => {
-  await go('reading');
+  try {
+    await go('reading');
 
-  // 先造一本书，方便验证"同时推进页码"
-  store.dispatch((s) => logic.addBook(s, { title: '人类简史', totalPages: 400 }));
-  await waitRender();
-  const book = store.getState().books.find((b) => b.title === '人类简史');
+    // 自己造书，不依赖上一个用例留下的数据
+    store.dispatch((s) => logic.addBook(s, { title: '人类简史', totalPages: 400 }));
+    await waitRender();
+    await go('reading');
+    const book = store.getState().books.find((b) => b.title === '人类简史');
+    ok(book, '前置条件：应有一本《人类简史》');
 
-  const before = logic.readingMinutesOn(store.getState(), date.todayStr());
-  findByActAndId(view(), 'book-log', book.id).click();
-  await waitRender();
+    const before = logic.readingMinutesOn(store.getState(), date.todayStr());
+    findByActAndId(view(), 'book-log', book.id).click();
+    await waitRender();
 
-  modal().querySelector('[data-field="minutes"]').value = '25';
-  modal().querySelector('[data-field="pages"]').value = '30';
-  findByAct(modal(), 'save')[0].click();
-  await waitRender();
-  assertNoViewError();
+    modal().querySelector('[data-field="minutes"]').value = '25';
+    modal().querySelector('[data-field="pages"]').value = '30';
+    findByAct(modal(), 'save')[0].click();
+    await waitRender();
+    assertNoViewError();
 
-  eq(logic.readingMinutesOn(store.getState(), date.todayStr()), before + 25, '今日阅读分钟应 +25');
-  eq(logic.findBook(store.getState(), book.id).currentPage, 30, '页数应同时推进 30 页');
+    eq(logic.readingMinutesOn(store.getState(), date.todayStr()), before + 25, '今日阅读分钟应 +25');
+    eq(logic.findBook(store.getState(), book.id).currentPage, 30, '页数应同时推进 30 页');
 
-  // 目标进度条与文案应体现出来
-  const html = view().innerHTML;
-  ok(html.includes('read-goal'), '应有今日目标区块');
-  ok(html.includes('周'), '应有本周七天的小格');
-  ok(html.includes('week-dot'), '本周小格应被画出');
+    // 目标进度条与文案应体现出来
+    const html = view().innerHTML;
+    ok(html.includes('read-goal'), '应有今日目标区块');
+    ok(html.includes('周'), '应有本周七天的小格');
+    ok(html.includes('week-dot'), '本周小格应被画出');
+  } finally {
+    await resetAfterTest();
+  }
 });
 
 test('阅读：笔记可记、可关联书与页码、可删除并撤销', async () => {
-  await go('reading');
-  const book = store.getState().books[0];
+  try {
+    await go('reading');
+    // 自己造书与笔记，不依赖别的用例
+    store.dispatch((s) => logic.addBook(s, { title: '人类简史', totalPages: 400 }));
+    await waitRender();
+    await go('reading');
+    const book = store.getState().books[0];
+    ok(book, '前置条件：应有一本书');
 
-  // 用输入框快速记一条（不关联书）
-  const input = view().querySelector('[data-field="bnote-input"]');
-  ok(input, '应有快速记笔记的输入框');
-  input.typeAndEnter('这句话值得记住');
-  await waitRender();
+    // 用输入框快速记一条（不关联书）
+    const input = view().querySelector('[data-field="bnote-input"]');
+    ok(input, '应有快速记笔记的输入框');
+    input.typeAndEnter('这句话值得记住');
+    await waitRender();
 
-  let notes = store.getState().bookNotes;
-  eq(notes.length, 1, '应新增一条笔记');
-  eq(notes[0].text, '这句话值得记住');
-  eq(notes[0].kind, 'note', '默认是想法');
-  eq(input.value, '', '提交后输入框应清空');
-  ok(view().innerHTML.includes('这句话值得记住'), '界面上应显示这条笔记');
+    let notes = store.getState().bookNotes;
+    eq(notes.length, 1, '应新增一条笔记');
+    eq(notes[0].text, '这句话值得记住');
+    eq(notes[0].kind, 'note', '默认是想法');
+    eq(input.value, '', '提交后输入框应清空');
+    ok(view().innerHTML.includes('这句话值得记住'), '界面上应显示这条笔记');
 
-  // 走弹窗记一条摘抄，关联到书并填页码
-  findByAct(view(), 'bnote-new')[0].click();
-  await waitRender();
-  modal().querySelector('[data-field="text"]').value = '原文摘抄一句';
-  modal().querySelector('[data-field="kind"]').value = 'quote';
-  modal().querySelector('[data-field="page"]').value = '42';
-  modal().querySelector('[data-field="bookId"]').value = book.id;
-  findByAct(modal(), 'save')[0].click();
-  await waitRender();
-  assertNoViewError();
+    // 走弹窗记一条摘抄，关联到书并填页码
+    findByAct(view(), 'bnote-new')[0].click();
+    await waitRender();
+    modal().querySelector('[data-field="text"]').value = '原文摘抄一句';
+    modal().querySelector('[data-field="kind"]').value = 'quote';
+    modal().querySelector('[data-field="page"]').value = '42';
+    modal().querySelector('[data-field="bookId"]').value = book.id;
+    findByAct(modal(), 'save')[0].click();
+    await waitRender();
+    assertNoViewError();
 
-  notes = store.getState().bookNotes;
-  eq(notes.length, 2, '应有两条笔记');
-  const quote = notes.find((n) => n.kind === 'quote');
-  ok(quote, '应有一条摘抄');
-  eq(quote.page, 42, '页码应保存');
-  eq(quote.bookId, book.id, '应关联到那本书');
-  ok(view().innerHTML.includes('摘抄'), '界面应标出摘抄');
+    notes = store.getState().bookNotes;
+    eq(notes.length, 2, '应有两条笔记');
+    const quote = notes.find((n) => n.kind === 'quote');
+    ok(quote, '应有一条摘抄');
+    eq(quote.page, 42, '页码应保存');
+    eq(quote.bookId, book.id, '应关联到那本书');
+    ok(view().innerHTML.includes('摘抄'), '界面应标出摘抄');
 
-  // 归属正确：notesOfBook 只返回这本书的
-  eq(logic.notesOfBook(store.getState(), book.id).length, 1, '这本书下应有 1 条笔记');
+    // 归属正确：notesOfBook 只返回这本书的
+    eq(logic.notesOfBook(store.getState(), book.id).length, 1, '这本书下应有 1 条笔记');
 
-  // 删除并撤销
-  const before = store.getState().bookNotes.length;
-  findByActAndId(view(), 'bnote-del', quote.id).click();
-  await waitRender();
-  eq(store.getState().bookNotes.length, before - 1, '应删除一条');
-  eq(store.getStatus().canUndo, true, '应可撤销');
-  dom.document.getElementById('toastLayer').querySelector('.toast-action').click();
-  await waitRender();
-  eq(store.getState().bookNotes.length, before, '撤销后应恢复');
+    // 删除并撤销
+    const before = store.getState().bookNotes.length;
+    findByActAndId(view(), 'bnote-del', quote.id).click();
+    await waitRender();
+    eq(store.getState().bookNotes.length, before - 1, '应删除一条');
+    eq(store.getStatus().canUndo, true, '应可撤销');
+    dom.document.getElementById('toastLayer').querySelector('.toast-action').click();
+    await waitRender();
+    eq(store.getState().bookNotes.length, before, '撤销后应恢复');
+  } finally {
+    await resetAfterTest();
+  }
 });
 
 test('阅读：删书会连带清掉它的笔记，不留孤儿数据', async () => {
-  await go('reading');
-  const book = store.getState().books[0];
-  const linked = logic.notesOfBook(store.getState(), book.id);
-  const totalBefore = store.getState().bookNotes.length;
-  ok(linked.length > 0, '前置条件：这本书下有笔记');
-  ok(totalBefore > linked.length, '前置条件：还有不属于这本书的笔记（用于验证不会被误删）');
+  try {
+    // 自己把前置条件造出来，不依赖别的用例留下的状态
+    await go('reading');
+    store.dispatch((s) => logic.addBook(s, { title: '甲书', totalPages: 100 }));
+    store.dispatch((s) => logic.addBook(s, { title: '乙书', totalPages: 100 }));
+    await waitRender();
+    await go('reading');
 
-  findByActAndId(view(), 'book-menu', book.id).click();
-  await waitRender();
-  const del = findByAct(modal(), 'menu-pick').find((el) => el.getAttribute('data-key') === 'delete');
-  ok(del, '菜单里应有删除');
-  del.click();
-  await waitRender();
-  eq(store.getStatus().canUndo, true, '删除应可撤销');
+    const books = store.getState().books;
+    const book = books[0];
+    store.dispatch((s) => logic.addBookNote(s, { text: '甲书下的一条', bookId: book.id }));
+    store.dispatch((s) => logic.addBookNote(s, { text: '甲书下的另一条', bookId: book.id }));
+    store.dispatch((s) => logic.addBookNote(s, { text: '乙书下的', bookId: books[1].id }));
+    await waitRender();
+    await go('reading');
 
-  eq(logic.findBook(store.getState(), book.id), null, '书应被删除');
-  eq(logic.notesOfBook(store.getState(), book.id).length, 0, '它的笔记也应一并清掉');
-  eq(store.getState().bookNotes.length, totalBefore - linked.length,
-    '只应删掉属于这本书的笔记，其他笔记要保留');
+    const linked = logic.notesOfBook(store.getState(), book.id);
+    const totalBefore = store.getState().bookNotes.length;
+    eq(linked.length, 2, '前置条件：这本书下有 2 条笔记');
+    ok(totalBefore > linked.length, '前置条件：还有不属于这本书的笔记（用于验证不会被误删）');
 
-  // 撤销应把书与笔记一起恢复
-  dom.document.getElementById('toastLayer').querySelector('.toast-action').click();
-  await waitRender();
-  ok(logic.findBook(store.getState(), book.id), '撤销后书应回来');
-  eq(store.getState().bookNotes.length, totalBefore, '撤销后笔记也应回来');
+    findByActAndId(view(), 'book-menu', book.id).click();
+    await waitRender();
+    const del = findByAct(modal(), 'menu-pick').find((el) => el.getAttribute('data-key') === 'delete');
+    ok(del, '菜单里应有删除');
+    del.click();
+    await waitRender();
+    eq(store.getStatus().canUndo, true, '删除应可撤销');
+
+    eq(logic.findBook(store.getState(), book.id), null, '书应被删除');
+    eq(logic.notesOfBook(store.getState(), book.id).length, 0, '它的笔记也应一并清掉');
+    eq(store.getState().bookNotes.length, totalBefore - linked.length,
+      '只应删掉属于这本书的笔记，其他笔记要保留');
+
+    // 撤销应把书与笔记一起恢复
+    dom.document.getElementById('toastLayer').querySelector('.toast-action').click();
+    await waitRender();
+    ok(logic.findBook(store.getState(), book.id), '撤销后书应回来');
+    eq(store.getState().bookNotes.length, totalBefore, '撤销后笔记也应回来');
+  } finally {
+    await resetAfterTest();
+  }
 });
 
 test('阅读：推到今日会生成一条归属阅读的任务', async () => {

@@ -59,7 +59,6 @@ function bookRow(book) {
       progress +
     '</div>' +
     '<div class="book-actions">' +
-      ui.btn('+10 页', { act: 'book-page', id: book.id, step: '10' }, 'btn-sm') +
       ui.btn('记一次', { act: 'book-log', id: book.id }, 'btn-sm') +
       ui.btn('笔记', { act: 'book-notes', id: book.id }, 'btn-sm') +
       ui.iconBtn('···', { act: 'book-menu', id: book.id }, '更多操作') +
@@ -246,16 +245,9 @@ export default {
       return;
     }
 
-    if (type === 'book-page') {
-      const step = Number(act.getAttribute('data-step')) || 10;
-      store.dispatch((s) => logic.advanceBookPage(s, id, step), { label: '更新阅读进度' });
-      const book = logic.findBook(store.getState(), id);
-      if (book && book.status === 'finished') {
-        ui.toast('《' + book.title + '》读完了 🎉', { type: 'ok', duration: 2600 });
-      }
-      helpers.rerender();
-      return;
-    }
+    // 说明：列表上原本有个「+10 页」按钮，按本人要求已去掉。
+    // 推进页码现在只有两条路：编辑书时直接填「已读到第几页」，
+    // 或者「记一次阅读」时顺便填读了多少页。
 
     if (type === 'book-notes') {
       store.dispatch((s) => logic.pushBookToToday(s, id, today), { label: '推到今日' });
@@ -269,7 +261,6 @@ export default {
       if (target) target.classList.add('flash');
       return;
     }
-
     if (type === 'bnote-new' || type === 'bnote-edit') {
       const note = type === 'bnote-edit' ? logic.findBookNote(state, id) : null;
       // 与「读书笔记」页共用同一个编辑弹窗，避免两处实现走样
